@@ -980,7 +980,7 @@ export default function AssetSimulator() {
                     전체자산 {currentTotal.toLocaleString()}원
                   </td>
                   <td className="text-right text-white text-lg underline underline-offset-4 decoration-blue-300">
-                    순자산 +{realProfit.toLocaleString()}원
+                    차익 자산(인플레제외) +{realProfit.toLocaleString()}원
                   </td>
                   <td className="text-right rounded-r-2xl pr-4">
                     <span className="bg-white text-blue-600 px-3 py-1 rounded-full text-xs">

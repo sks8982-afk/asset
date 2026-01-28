@@ -977,7 +977,7 @@ export default function AssetSimulator() {
                     토탈 실적
                   </td>
                   <td className="text-right text-blue-200">
-                    Total {currentTotal.toLocaleString()}원
+                    전체자산 {currentTotal.toLocaleString()}원
                   </td>
                   <td className="text-right text-white text-lg underline underline-offset-4 decoration-blue-300">
                     순자산 +{realProfit.toLocaleString()}원

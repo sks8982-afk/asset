@@ -20,6 +20,7 @@ import {
   ArrowRight,
   PieChart as PieIcon,
   Info,
+  Zap,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -38,97 +39,82 @@ export default function Dashboard() {
 
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        const { data: dbData, error } = await supabase
-          .from('asset_history')
-          .select('*')
-          .order('date', { ascending: true });
-        if (error) throw error;
-        if (dbData) {
-          const formatted = dbData.map((item) => ({
+      const { data: dbData } = await supabase
+        .from('asset_history')
+        .select('*')
+        .order('date', { ascending: true });
+      if (dbData) {
+        setData(
+          dbData.map((item) => ({
             ...item,
-            total_investment: item.total_investment || 0,
-            savings_balance: item.savings_balance || 0,
-            inflation_adjusted: item.inflation_adjusted || 0,
             details:
               typeof item.details === 'string'
                 ? JSON.parse(item.details)
                 : item.details,
-          }));
-          setData(formatted);
-        }
-      } catch (err) {
-        console.error('Data Fetch Error:', err);
-      } finally {
-        setLoading(false);
+          })),
+        );
       }
+      setLoading(false);
     };
     fetchData();
   }, []);
 
   if (loading)
     return (
-      <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">
-        데이터를 불러오는 중...
+      <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 text-sm italic">
+        실질 구매력 분석 중...
       </div>
     );
 
-  const last = data[data.length - 1];
-  const totalPrincipal = last?.savings_balance || 0;
-  const currentTotal = last?.total_investment || 0;
-  const inflationValue = last?.inflation_adjusted || 0; // DB에 저장된 물가 반영 수치
+  const last = data[data.length - 1] || {};
+  const totalPrincipal = last.savings_balance || 0;
+  const currentTotal = last.total_investment || 0;
+  const inflationValue = last.inflation_adjusted || 0;
 
-  const profit = currentTotal - totalPrincipal;
-  const profitRate =
-    totalPrincipal > 0 ? ((profit / totalPrincipal) * 100).toFixed(1) : '0.0';
-  const inflationRate =
+  const nominalProfit = currentTotal - totalPrincipal; // 명목 수익
+  const realProfit = currentTotal - inflationValue; // 실질 수익 (물가 제외)
+  const realProfitRate =
     totalPrincipal > 0
-      ? (((inflationValue - totalPrincipal) / totalPrincipal) * 100).toFixed(1)
+      ? ((realProfit / totalPrincipal) * 100).toFixed(1)
       : '0.0';
 
-  const d = last?.details || {};
+  const d = last.details || {};
   const assetDetails = [
     {
       name: 'S&P 500',
       principal: totalPrincipal * 0.35,
       value: d.valS || 0,
       color: COLORS[0],
-      return: '+61.2%',
     },
     {
       name: 'QQQ (나스닥)',
       principal: totalPrincipal * 0.25,
       value: d.valQ || 0,
       color: COLORS[1],
-      return: '+96.4%',
     },
     {
       name: '배당주 (SCHD)',
       principal: totalPrincipal * 0.1,
       value: d.valD || 0,
       color: COLORS[2],
-      return: '+48.2%',
     },
     {
       name: '금 (현물)',
       principal: totalPrincipal * 0.15,
       value: d.valG || 0,
       color: COLORS[3],
-      return: '+85.5%',
     },
     {
       name: '은 (현물)',
       principal: totalPrincipal * 0.05,
       value: d.valSi || 0,
       color: COLORS[4],
-      return: '+66.8%',
     },
     {
       name: '비트코인',
       principal: totalPrincipal * 0.1,
       value: d.valC || 0,
       color: COLORS[5],
-      return: '+262.1%',
     },
   ];
 
@@ -137,48 +123,50 @@ export default function Dashboard() {
       <div className="max-w-6xl mx-auto">
         <header className="mb-8 flex flex-col sm:flex-row justify-between items-end gap-4">
           <div>
-            <h1 className="text-3xl font-black tracking-tighter text-blue-600">
-              ASSET TRACKER v2.2
+            <h1 className="text-3xl font-black tracking-tighter text-blue-600 italic">
+              PURCHASING POWER
             </h1>
-            <p className="text-sm text-gray-500 font-medium mt-1 uppercase tracking-widest">
-              Historical Performance vs Inflation
+            <p className="text-sm text-gray-500 font-medium mt-1">
+              물가 상승률을 제외한 실질 자산 증식 현황
             </p>
           </div>
-          <div className="bg-white border-2 border-blue-600 px-6 py-3 rounded-2xl text-right shadow-[4px_4px_0px_0px_rgba(37,99,235,1)]">
-            <p className="text-[10px] font-bold text-blue-400 uppercase">
-              Total Profit Rate
+          <div className="bg-blue-600 px-6 py-3 rounded-2xl shadow-xl text-white text-right">
+            <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">
+              Real Profit Rate
             </p>
-            <p className="text-2xl font-black text-blue-600">+{profitRate}%</p>
+            <p className="text-2xl font-black">+{realProfitRate}%</p>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {/* 메인 카드 섹션 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 text-white">
           <Card
+            theme="bg-blue-500"
             icon={<TrendingUp />}
-            title="현재 평가액"
+            title="현재 총 자산"
             value={`${currentTotal.toLocaleString()}원`}
-            sub="전체 자산 가치"
+            sub="평가 금액 합계"
           />
           <Card
+            theme="bg-emerald-500"
             icon={<Landmark />}
-            title="누적 투자금"
+            title="누적 투자 원금"
             value={`${totalPrincipal.toLocaleString()}원`}
-            sub="실제 투입 원금"
+            sub="5년 총 납입금"
           />
           <Card
-            icon={<Coins />}
-            title="순수익 실적"
-            value={`${profit.toLocaleString()}원`}
-            sub="수익금 현황"
+            theme="bg-indigo-600 shadow-indigo-200 shadow-2xl scale-105"
+            icon={<Zap />}
+            title="실질 수익 (순수증식)"
+            value={`${realProfit.toLocaleString()}원`}
+            sub="물가상승분 제외 결과"
           />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <div className="lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-            <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
-              성장 추이 (2021-2026)
-            </h2>
-            <div className="h-[350px]">
+          <div className="lg:col-span-2 bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-bold mb-6">구매력 성장 곡선</h2>
+            <div className="h-[350px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={data}>
                   <CartesianGrid
@@ -204,18 +192,9 @@ export default function Dashboard() {
                   <Line
                     type="monotone"
                     dataKey="total_investment"
-                    name="총 자산"
+                    name="내 자산"
                     stroke="#3b82f6"
                     strokeWidth={4}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="savings_balance"
-                    name="원금 합계"
-                    stroke="#10b981"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
                     dot={false}
                   />
                   <Line
@@ -224,16 +203,25 @@ export default function Dashboard() {
                     name="물가반영 원금"
                     stroke="#f43f5e"
                     strokeWidth={2}
-                    strokeDasharray="3 3"
+                    strokeDasharray="5 5"
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="savings_balance"
+                    name="단순 원금"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    strokeDasharray="2 2"
                     dot={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center">
-            <h2 className="text-lg font-bold mb-4 self-start flex items-center gap-2">
-              <PieIcon size={20} /> 자산 구성비
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <PieIcon size={20} /> 자산 구성
             </h2>
             <div className="h-[250px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -262,32 +250,31 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* 상세 테이블 */}
         <div className="bg-white p-4 sm:p-8 rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          <h2 className="text-lg font-bold mb-6">종목별 실측 성과 상세</h2>
+          <h2 className="text-lg font-bold mb-6">
+            자산 실적 vs 인플레이션 상세
+          </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-left min-w-[600px]">
               <thead>
                 <tr className="border-b border-gray-100 text-gray-400 text-[10px] uppercase font-bold tracking-widest">
-                  <th className="pb-4 text-left">종목명</th>
+                  <th className="pb-4">항목</th>
                   <th className="pb-4 text-right">투자 원금</th>
-                  <th className="pb-4 text-right">현재 평가액</th>
-                  <th className="pb-4 text-right">누적 수익률</th>
+                  <th className="pb-4 text-right">현재 가치</th>
+                  <th className="pb-4 text-right">수익률</th>
                 </tr>
               </thead>
-              <tbody className="text-sm">
+              <tbody className="text-sm font-medium">
                 {assetDetails.map((asset, idx) => (
                   <tr
                     key={idx}
-                    className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors"
+                    className="border-b border-gray-50 last:border-0 hover:bg-gray-50"
                   >
-                    <td className="py-5 font-bold text-gray-800 flex items-center gap-3">
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: asset.color }}
-                      ></div>
+                    <td className="py-5 font-bold text-gray-700">
                       {asset.name}
                     </td>
-                    <td className="text-right text-gray-500 font-medium">
+                    <td className="text-right text-gray-500">
                       {Math.floor(asset.principal).toLocaleString()}원
                     </td>
                     <td className="text-right font-black text-gray-900">
@@ -295,18 +282,21 @@ export default function Dashboard() {
                     </td>
                     <td className="text-right">
                       <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-black text-[10px]">
-                        {asset.return}
+                        +
+                        {(
+                          ((asset.value - asset.principal) / asset.principal) *
+                          100
+                        ).toFixed(1)}
+                        %
                       </span>
                     </td>
                   </tr>
                 ))}
-                {/* 물가상승률 행 추가 */}
                 <tr className="bg-rose-50/50">
-                  <td className="py-5 font-bold text-rose-600 flex items-center gap-3 pl-2">
-                    <Info size={14} />
-                    화폐 가치 하락 (물가상승)
+                  <td className="py-5 font-bold text-rose-600 flex items-center gap-2">
+                    <Info size={14} /> 물가 상승 (화폐가치 하락)
                   </td>
-                  <td className="text-right text-gray-500 font-medium">
+                  <td className="text-right text-gray-500">
                     {totalPrincipal.toLocaleString()}원
                   </td>
                   <td className="text-right font-black text-rose-600">
@@ -314,7 +304,28 @@ export default function Dashboard() {
                   </td>
                   <td className="text-right">
                     <span className="bg-rose-100 text-rose-600 px-3 py-1 rounded-full font-black text-[10px]">
-                      +{inflationRate}%
+                      +
+                      {(
+                        ((inflationValue - totalPrincipal) / totalPrincipal) *
+                        100
+                      ).toFixed(1)}
+                      %
+                    </span>
+                  </td>
+                </tr>
+                <tr className="bg-indigo-50 border-t-2 border-indigo-100">
+                  <td className="py-6 font-black text-indigo-700 text-base uppercase">
+                    Real Profit (실질 수익)
+                  </td>
+                  <td className="text-right text-indigo-400">
+                    명목 {nominalProfit.toLocaleString()}원
+                  </td>
+                  <td className="text-right font-black text-indigo-700 text-lg underline">
+                    {realProfit.toLocaleString()}원
+                  </td>
+                  <td className="text-right">
+                    <span className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-black text-xs shadow-lg">
+                      NET +{realProfitRate}%
                     </span>
                   </td>
                 </tr>
@@ -327,18 +338,18 @@ export default function Dashboard() {
   );
 }
 
-function Card({ icon, title, value, sub }: any) {
+function Card({ icon, title, value, sub, theme }: any) {
   return (
-    <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4">
-      <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">{icon}</div>
+    <div
+      className={`${theme} p-6 rounded-3xl shadow-sm flex items-center gap-4 transition-transform hover:scale-105`}
+    >
+      <div className="p-3 bg-white/20 rounded-2xl">{icon}</div>
       <div>
-        <p className="text-[10px] text-gray-400 font-bold uppercase mb-0.5">
+        <p className="text-[10px] font-bold uppercase mb-0.5 opacity-80">
           {title}
         </p>
-        <p className="text-xl font-black text-gray-900 leading-tight">
-          {value}
-        </p>
-        <p className="text-[10px] text-blue-400 font-medium">{sub}</p>
+        <p className="text-xl font-black leading-tight">{value}</p>
+        <p className="text-[10px] font-bold mt-1 opacity-70">{sub}</p>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   const MONTHLY_INVEST = 1300000;
-  const ANNUAL_INFLATION_RATE = 0.035; // 연 3.5% 물가상승률 가정
+  const ANNUAL_INFLATION_RATE = 0.035; // 연 3.5% 물가상승률
   const MONTHLY_INFLATION_RATE = ANNUAL_INFLATION_RATE / 12;
 
   const history = [
@@ -114,23 +114,17 @@ export async function GET() {
     qD = 0,
     qG = 0,
     qSi = 0,
-    qC = 0;
-  let totalInjected = 0,
+    qC = 0,
+    totalInjected = 0,
     cumulativeInflationValue = 0;
 
   const formattedData = history.map((item, idx) => {
     const monthsPassed = idx === 0 ? 1 : 6;
-
     for (let i = 0; i < monthsPassed; i++) {
       totalInjected += MONTHLY_INVEST;
-
-      // 1. 기존에 쌓여있던 물가반영 원금에 한 달치 인플레이션 적용
       cumulativeInflationValue =
-        cumulativeInflationValue * (1 + MONTHLY_INFLATION_RATE);
-      // 2. 이번 달 새로 들어온 130만원 추가
-      cumulativeInflationValue += MONTHLY_INVEST;
-
-      // 자산 매수 로직 (생략 없이 유지)
+        cumulativeInflationValue * (1 + MONTHLY_INFLATION_RATE) +
+        MONTHLY_INVEST;
       qS += (MONTHLY_INVEST * 0.35) / item.ex / item.s;
       qQ += (MONTHLY_INVEST * 0.25) / item.ex / item.q;
       qD += (MONTHLY_INVEST * 0.1) / item.ex / item.d;
@@ -138,28 +132,20 @@ export async function GET() {
       qSi += (MONTHLY_INVEST * 0.05) / item.sil;
       qC += (MONTHLY_INVEST * 0.1) / item.c;
     }
-
-    const totalInv =
-      qS * item.s * item.ex +
-      qQ * item.q * item.ex +
-      qD * item.d * item.ex +
-      qG * item.g +
-      qSi * item.sil +
-      qC * item.c;
+    const valS = qS * item.s * item.ex,
+      valQ = qQ * item.q * item.ex,
+      valD = qD * item.d * item.ex;
+    const valG = qG * item.g,
+      valSi = qSi * item.sil,
+      valC = qC * item.c;
+    const totalInv = valS + valQ + valD + valG + valSi + valC;
 
     return {
       date: item.date,
       total_investment: Math.floor(totalInv),
       savings_balance: totalInjected,
       inflation_adjusted: Math.floor(cumulativeInflationValue),
-      details: {
-        valS: qS * item.s * item.ex,
-        valQ: qQ * item.q * item.ex,
-        valD: qD * item.d * item.ex,
-        valG: qG * item.g,
-        valSi: qSi * item.sil,
-        valC: qC * item.c,
-      },
+      details: { valS, valQ, valD, valG, valSi, valC },
       status: 'stable',
     };
   });
@@ -169,5 +155,5 @@ export async function GET() {
     .delete()
     .neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('asset_history').insert(formattedData);
-  return NextResponse.json({ message: '5개년 물가 복리 데이터 반영 완료' });
+  return NextResponse.json({ message: '실질 수익 계산용 데이터 주입 완료' });
 }

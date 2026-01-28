@@ -709,6 +709,11 @@ export default function AssetSimulator() {
   const currentTotal = last.investment;
   const realProfit = currentTotal - last.inflation;
   const realProfitRate = ((realProfit / totalPrincipal) * 100).toFixed(1);
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 숫자가 아닌 모든 문자(콤마 등)를 제거
+    const value = e.target.value.replace(/[^0-9]/g, '');
+    setAmount(Number(value));
+  };
 
   const assetList = [
     { id: 's', name: 'S&P 500', color: COLORS[0], value: last.details.valS },
@@ -767,9 +772,9 @@ export default function AssetSimulator() {
                 월 납입 금액 (원)
               </label>
               <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                type="text"
+                value={amount.toLocaleString('ko-KR')}
+                onChange={handleAmountChange}
                 className="w-full bg-slate-100 border-none rounded-xl p-3 font-black text-blue-600 focus:ring-2 focus:ring-blue-500 transition-all outline-none"
               />
             </div>

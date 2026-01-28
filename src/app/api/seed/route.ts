@@ -1,111 +1,647 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
+interface MarketPrice {
+  d: string;
+  s: number;
+  q: number;
+  sc: number;
+  g: number;
+  si: number;
+  b: number;
+  ex: number;
+}
+interface AssetHistoryItem {
+  date: string;
+  total_investment: number;
+  savings_balance: number;
+  inflation_adjusted: number;
+  details: {
+    valS: number;
+    valQ: number;
+    valD: number;
+    valG: number;
+    valSi: number;
+    valC: number;
+  };
+  status: string;
+}
+
 export async function GET() {
   const MONTHLY_INVEST = 1300000;
-  const ANNUAL_INFLATION_RATE = 0.035; // 연 3.5% 물가상승률
-  const MONTHLY_INFLATION_RATE = ANNUAL_INFLATION_RATE / 12;
+  const MONTHLY_INFLATION_RATE = 0.035 / 12;
+  const QUARTERLY_DIV_RATE = 0.034 / 4;
 
-  const history = [
+  const p: MarketPrice[] = [
     {
-      date: '2021-01-25',
-      s: 3855,
+      d: '2021-01',
+      s: 3714,
+      q: 314,
+      sc: 17.7,
+      g: 65400,
+      si: 880,
+      b: 34500000,
+      ex: 1118,
+    },
+    {
+      d: '2021-02',
+      s: 3811,
       q: 315,
-      d: 64,
-      g: 65200,
-      sil: 855,
-      c: 35200000,
-      ex: 1105,
+      sc: 18.8,
+      g: 62100,
+      si: 920,
+      b: 50200000,
+      ex: 1123,
     },
     {
-      date: '2021-07-25',
-      s: 4411,
-      q: 368,
-      d: 75,
-      g: 66800,
-      sil: 910,
-      c: 39800000,
-      ex: 1148,
+      d: '2021-03',
+      s: 3972,
+      q: 319,
+      sc: 20.5,
+      g: 61800,
+      si: 910,
+      b: 64800000,
+      ex: 1131,
     },
     {
-      date: '2022-01-25',
-      s: 4356,
-      q: 352,
-      d: 78,
-      g: 71200,
-      sil: 875,
-      c: 43500000,
-      ex: 1198,
+      d: '2021-04',
+      s: 4181,
+      q: 338,
+      sc: 20.9,
+      g: 63200,
+      si: 930,
+      b: 61200000,
+      ex: 1112,
     },
     {
-      date: '2022-07-25',
-      s: 3961,
-      q: 305,
-      d: 72,
-      g: 74500,
-      sil: 815,
-      c: 28500000,
-      ex: 1312,
+      d: '2021-05',
+      s: 4204,
+      q: 333,
+      sc: 21.6,
+      g: 67800,
+      si: 1010,
+      b: 41300000,
+      ex: 1111,
     },
     {
-      date: '2023-01-25',
-      s: 4016,
-      q: 288,
-      d: 76,
-      g: 78200,
-      sil: 940,
-      c: 29200000,
-      ex: 1232,
+      d: '2021-06',
+      s: 4297,
+      q: 354,
+      sc: 21.4,
+      g: 64200,
+      si: 940,
+      b: 39100000,
+      ex: 1130,
     },
     {
-      date: '2023-07-25',
+      d: '2021-07',
+      s: 4395,
+      q: 364,
+      sc: 21.5,
+      g: 65800,
+      si: 920,
+      b: 46200000,
+      ex: 1150,
+    },
+    {
+      d: '2021-08',
+      s: 4522,
+      q: 380,
+      sc: 22.0,
+      g: 66100,
+      si: 880,
+      b: 54100000,
+      ex: 1159,
+    },
+    {
+      d: '2021-09',
+      s: 4307,
+      q: 358,
+      sc: 21.2,
+      g: 65100,
+      si: 820,
+      b: 50800000,
+      ex: 1184,
+    },
+    {
+      d: '2021-10',
+      s: 4605,
+      q: 386,
+      sc: 22.1,
+      g: 67100,
+      si: 870,
+      b: 71200000,
+      ex: 1168,
+    },
+    {
+      d: '2021-11',
       s: 4567,
-      q: 378,
-      d: 74,
+      q: 393,
+      sc: 21.6,
+      g: 67800,
+      si: 910,
+      b: 68500000,
+      ex: 1187,
+    },
+    {
+      d: '2021-12',
+      s: 4766,
+      q: 397,
+      sc: 23.2,
+      g: 69200,
+      si: 850,
+      b: 56300000,
+      ex: 1188,
+    },
+    {
+      d: '2022-01',
+      s: 4515,
+      q: 363,
+      sc: 22.6,
+      g: 69800,
+      si: 820,
+      b: 45800000,
+      ex: 1205,
+    },
+    {
+      d: '2022-02',
+      s: 4373,
+      q: 346,
+      sc: 22.2,
+      g: 73200,
+      si: 880,
+      b: 52100000,
+      ex: 1202,
+    },
+    {
+      d: '2022-03',
+      s: 4530,
+      q: 362,
+      sc: 22.8,
+      g: 74800,
+      si: 960,
+      b: 54100000,
+      ex: 1212,
+    },
+    {
+      d: '2022-04',
+      s: 4131,
+      q: 313,
+      sc: 21.9,
+      g: 77100,
+      si: 910,
+      b: 47200000,
+      ex: 1255,
+    },
+    {
+      d: '2022-05',
+      s: 4132,
+      q: 308,
+      sc: 22.7,
+      g: 75200,
+      si: 880,
+      b: 39100000,
+      ex: 1237,
+    },
+    {
+      d: '2022-06',
+      s: 3785,
+      q: 280,
+      sc: 20.9,
+      g: 75300,
+      si: 820,
+      b: 25100000,
+      ex: 1298,
+    },
+    {
+      d: '2022-07',
+      s: 4130,
+      q: 315,
+      sc: 21.7,
+      g: 73500,
+      si: 780,
+      b: 29800000,
+      ex: 1306,
+    },
+    {
+      d: '2022-08',
+      s: 3955,
+      q: 299,
+      sc: 21.2,
+      g: 73100,
+      si: 750,
+      b: 27100000,
+      ex: 1337,
+    },
+    {
+      d: '2022-09',
+      s: 3585,
+      q: 267,
+      sc: 19.6,
+      g: 74100,
+      si: 780,
+      b: 26800000,
+      ex: 1430,
+    },
+    {
+      d: '2022-10',
+      s: 3871,
+      q: 277,
+      sc: 21.8,
+      g: 74200,
+      si: 820,
+      b: 28500000,
+      ex: 1424,
+    },
+    {
+      d: '2022-11',
+      s: 4080,
+      q: 284,
+      sc: 23.3,
+      g: 76800,
+      si: 880,
+      b: 22100000,
+      ex: 1318,
+    },
+    {
+      d: '2022-12',
+      s: 3839,
+      q: 266,
+      sc: 22.5,
+      g: 78100,
+      si: 940,
+      b: 21100000,
+      ex: 1264,
+    },
+    {
+      d: '2023-01',
+      s: 4076,
+      q: 294,
+      sc: 22.9,
+      g: 79800,
+      si: 910,
+      b: 28400000,
+      ex: 1231,
+    },
+    {
+      d: '2023-02',
+      s: 3970,
+      q: 291,
+      sc: 22.2,
+      g: 77100,
+      si: 850,
+      b: 30100000,
+      ex: 1322,
+    },
+    {
+      d: '2023-03',
+      s: 4109,
+      q: 320,
+      sc: 21.9,
+      g: 82100,
+      si: 940,
+      b: 37500000,
+      ex: 1298,
+    },
+    {
+      d: '2023-04',
+      s: 4169,
+      q: 322,
+      sc: 21.8,
+      g: 84200,
+      si: 1020,
+      b: 38100000,
+      ex: 1337,
+    },
+    {
+      d: '2023-05',
+      s: 4179,
+      q: 348,
+      sc: 20.9,
+      g: 83200,
+      si: 980,
+      b: 36200000,
+      ex: 1327,
+    },
+    {
+      d: '2023-06',
+      s: 4450,
+      q: 369,
+      sc: 22.0,
+      g: 80800,
+      si: 920,
+      b: 40100000,
+      ex: 1317,
+    },
+    {
+      d: '2023-07',
+      s: 4588,
+      q: 383,
+      sc: 22.9,
       g: 81800,
-      sil: 1040,
-      c: 37500000,
-      ex: 1285,
+      si: 960,
+      b: 37800000,
+      ex: 1274,
     },
     {
-      date: '2024-01-25',
-      s: 4894,
-      q: 428,
-      d: 75,
-      g: 86500,
-      sil: 1010,
-      c: 57200000,
-      ex: 1338,
+      d: '2023-08',
+      s: 4507,
+      q: 377,
+      sc: 22.6,
+      g: 82500,
+      si: 940,
+      b: 34100000,
+      ex: 1321,
     },
     {
-      date: '2024-07-25',
-      s: 5399,
-      q: 492,
-      d: 81,
+      d: '2023-09',
+      s: 4288,
+      q: 358,
+      sc: 21.6,
+      g: 83500,
+      si: 910,
+      b: 36200000,
+      ex: 1349,
+    },
+    {
+      d: '2023-10',
+      s: 4193,
+      q: 350,
+      sc: 20.8,
+      g: 87100,
+      si: 940,
+      b: 46800000,
+      ex: 1350,
+    },
+    {
+      d: '2023-11',
+      s: 4567,
+      q: 388,
+      sc: 22.1,
+      g: 88200,
+      si: 980,
+      b: 51200000,
+      ex: 1300,
+    },
+    {
+      d: '2023-12',
+      s: 4769,
+      q: 409,
+      sc: 23.5,
+      g: 88100,
+      si: 1010,
+      b: 55400000,
+      ex: 1288,
+    },
+    {
+      d: '2024-01',
+      s: 4845,
+      q: 422,
+      sc: 23.5,
+      g: 87500,
+      si: 1050,
+      b: 58100000,
+      ex: 1334,
+    },
+    {
+      d: '2024-02',
+      s: 5096,
+      q: 439,
+      sc: 24.0,
+      g: 88200,
+      si: 1100,
+      b: 84200000,
+      ex: 1331,
+    },
+    {
+      d: '2024-03',
+      s: 5254,
+      q: 444,
+      sc: 25.1,
+      g: 95100,
+      si: 1250,
+      b: 98100000,
+      ex: 1347,
+    },
+    {
+      d: '2024-04',
+      s: 5035,
+      q: 423,
+      sc: 24.0,
       g: 104500,
-      sil: 1340,
-      c: 93500000,
-      ex: 1382,
+      si: 1400,
+      b: 88100000,
+      ex: 1377,
     },
     {
-      date: '2025-01-25',
-      s: 5850,
-      q: 525,
-      d: 89,
-      g: 117500,
-      sil: 1395,
-      c: 144500000,
-      ex: 1422,
+      d: '2024-05',
+      s: 5277,
+      q: 451,
+      sc: 24.4,
+      g: 106100,
+      si: 1650,
+      b: 96200000,
+      ex: 1363,
     },
     {
-      date: '2026-01-28',
-      s: 6205,
+      d: '2024-06',
+      s: 5460,
+      q: 478,
+      sc: 24.4,
+      g: 103200,
+      si: 1800,
+      b: 89100000,
+      ex: 1376,
+    },
+    {
+      d: '2024-07',
+      s: 5522,
+      q: 474,
+      sc: 26.0,
+      g: 108100,
+      si: 2100,
+      b: 92100000,
+      ex: 1379,
+    },
+    {
+      d: '2024-08',
+      s: 5648,
+      q: 480,
+      sc: 26.6,
+      g: 111200,
+      si: 2400,
+      b: 82100000,
+      ex: 1336,
+    },
+    {
+      d: '2024-09',
+      s: 5762,
+      q: 488,
+      sc: 26.8,
+      g: 115200,
+      si: 2800,
+      b: 86400000,
+      ex: 1307,
+    },
+    {
+      d: '2024-10',
+      s: 5705,
+      q: 491,
+      sc: 26.9,
+      g: 121500,
+      si: 3100,
+      b: 98100000,
+      ex: 1379,
+    },
+    {
+      d: '2024-11',
+      s: 6032,
+      q: 505,
+      sc: 28.1,
+      g: 136200,
+      si: 3450,
+      b: 135000000,
+      ex: 1395,
+    },
+    {
+      d: '2024-12',
+      s: 6010,
+      q: 509,
+      sc: 26.2,
+      g: 148100,
+      si: 3800,
+      b: 132000000,
+      ex: 1405,
+    },
+    {
+      d: '2025-01',
+      s: 5949,
+      q: 519,
+      sc: 26.7,
+      g: 154500,
+      si: 4100,
+      b: 144500000,
+      ex: 1428,
+    },
+    {
+      d: '2025-02',
+      s: 6114,
+      q: 505,
+      sc: 27.4,
+      g: 158200,
+      si: 4320,
+      b: 149000000,
+      ex: 1461,
+    },
+    {
+      d: '2025-03',
+      s: 5638,
+      q: 467,
+      sc: 27.1,
+      g: 161500,
+      si: 4400,
+      b: 122500000,
+      ex: 1420,
+    },
+    {
+      d: '2025-04',
+      s: 5396,
+      q: 473,
+      sc: 25.0,
+      g: 163200,
+      si: 4450,
+      b: 117500000,
+      ex: 1397,
+    },
+    {
+      d: '2025-05',
+      s: 5916,
+      q: 517,
+      sc: 25.4,
+      g: 165100,
+      si: 4520,
+      b: 147700000,
+      ex: 1370,
+    },
+    {
+      d: '2025-06',
+      s: 5976,
+      q: 550,
+      sc: 25.9,
+      g: 168200,
+      si: 4600,
+      b: 146200000,
+      ex: 1387,
+    },
+    {
+      d: '2025-07',
+      s: 6243,
+      q: 563,
+      sc: 25.9,
+      g: 180500,
+      si: 4650,
+      b: 161400000,
+      ex: 1385,
+    },
+    {
+      d: '2025-08',
+      s: 6449,
+      q: 569,
+      sc: 27.3,
+      g: 182100,
+      si: 4720,
+      b: 161300000,
+      ex: 1420,
+    },
+    {
+      d: '2025-09',
+      s: 6615,
+      q: 599,
+      sc: 27.0,
+      g: 183500,
+      si: 4780,
+      b: 152100000,
+      ex: 1468,
+    },
+    {
+      d: '2025-10',
+      s: 6671,
+      q: 628,
+      sc: 26.4,
+      g: 184200,
+      si: 4820,
+      b: 133200000,
+      ex: 1441,
+    },
+    {
+      d: '2025-11',
+      s: 6734,
       q: 618,
-      d: 95,
-      g: 121200,
-      sil: 1425,
-      c: 128500000,
-      ex: 1412,
+      sc: 27.3,
+      g: 185100,
+      si: 4850,
+      b: 129800000,
+      ex: 1427,
+    },
+    {
+      d: '2025-12',
+      s: 6816,
+      q: 614,
+      sc: 27.4,
+      g: 184100,
+      si: 4820,
+      b: 127200000,
+      ex: 1427,
+    },
+    {
+      d: '2026-01',
+      s: 6978,
+      q: 631,
+      sc: 27.7,
+      g: 186500,
+      si: 5120,
+      b: 127200000,
+      ex: 1427,
     },
   ];
 
@@ -117,43 +653,56 @@ export async function GET() {
     qC = 0,
     totalInjected = 0,
     cumulativeInflationValue = 0;
+  const formattedData: AssetHistoryItem[] = [];
 
-  const formattedData = history.map((item, idx) => {
-    const monthsPassed = idx === 0 ? 1 : 6;
-    for (let i = 0; i < monthsPassed; i++) {
-      totalInjected += MONTHLY_INVEST;
-      cumulativeInflationValue =
-        cumulativeInflationValue * (1 + MONTHLY_INFLATION_RATE) +
-        MONTHLY_INVEST;
-      qS += (MONTHLY_INVEST * 0.35) / item.ex / item.s;
-      qQ += (MONTHLY_INVEST * 0.25) / item.ex / item.q;
-      qD += (MONTHLY_INVEST * 0.1) / item.ex / item.d;
-      qG += (MONTHLY_INVEST * 0.15) / item.g;
-      qSi += (MONTHLY_INVEST * 0.05) / item.sil;
-      qC += (MONTHLY_INVEST * 0.1) / item.c;
+  p.forEach((curr, idx) => {
+    totalInjected += MONTHLY_INVEST;
+    cumulativeInflationValue =
+      cumulativeInflationValue * (1 + MONTHLY_INFLATION_RATE) + MONTHLY_INVEST;
+
+    qS += (MONTHLY_INVEST * 0.35) / curr.ex / curr.s;
+    qQ += (MONTHLY_INVEST * 0.25) / curr.ex / curr.q;
+    qD += (MONTHLY_INVEST * 0.1) / curr.ex / curr.sc;
+    qG += (MONTHLY_INVEST * 0.15) / curr.g;
+    qSi += (MONTHLY_INVEST * 0.05) / curr.si;
+    qC += (MONTHLY_INVEST * 0.1) / curr.b;
+
+    const m = parseInt(curr.d.split('-')[1]);
+    if ([3, 6, 9, 12].includes(m)) {
+      qD += (qD * curr.sc * curr.ex * QUARTERLY_DIV_RATE) / curr.ex / curr.sc;
     }
-    const valS = qS * item.s * item.ex,
-      valQ = qQ * item.q * item.ex,
-      valD = qD * item.d * item.ex;
-    const valG = qG * item.g,
-      valSi = qSi * item.sil,
-      valC = qC * item.c;
-    const totalInv = valS + valQ + valD + valG + valSi + valC;
 
-    return {
-      date: item.date,
-      total_investment: Math.floor(totalInv),
+    const valS = qS * curr.s * curr.ex,
+      valQ = qQ * curr.q * curr.ex,
+      valD = qD * curr.sc * curr.ex;
+    const valG = qG * curr.g,
+      valSi = qSi * curr.si,
+      valC = qC * curr.b;
+
+    formattedData.push({
+      date: `${curr.d}-25`,
+      total_investment: Math.floor(valS + valQ + valD + valG + valSi + valC),
       savings_balance: totalInjected,
       inflation_adjusted: Math.floor(cumulativeInflationValue),
       details: { valS, valQ, valD, valG, valSi, valC },
       status: 'stable',
-    };
+    });
   });
 
-  await supabase
-    .from('asset_history')
-    .delete()
-    .neq('id', '00000000-0000-0000-0000-000000000000');
-  await supabase.from('asset_history').insert(formattedData);
-  return NextResponse.json({ message: '실질 수익 계산용 데이터 주입 완료' });
+  try {
+    await supabase
+      .from('asset_history')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error } = await supabase
+      .from('asset_history')
+      .insert(formattedData);
+    if (error) throw error;
+    return NextResponse.json({
+      message: '61개월 전수 데이터 주입 완료',
+      count: formattedData.length,
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }

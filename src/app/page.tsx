@@ -15,12 +15,10 @@ import {
 } from 'recharts';
 import {
   TrendingUp,
-  Coins,
   Landmark,
-  ArrowRight,
-  PieChart as PieIcon,
   Info,
   Zap,
+  PieChart as PieIcon,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -43,7 +41,7 @@ export default function Dashboard() {
         .from('asset_history')
         .select('*')
         .order('date', { ascending: true });
-      if (dbData) {
+      if (dbData)
         setData(
           dbData.map((item) => ({
             ...item,
@@ -53,7 +51,6 @@ export default function Dashboard() {
                 : item.details,
           })),
         );
-      }
       setLoading(false);
     };
     fetchData();
@@ -61,8 +58,8 @@ export default function Dashboard() {
 
   if (loading)
     return (
-      <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 text-sm italic">
-        실질 구매력 분석 중...
+      <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 text-sm">
+        61개월 정밀 시세 데이터 분석 중...
       </div>
     );
 
@@ -70,9 +67,7 @@ export default function Dashboard() {
   const totalPrincipal = last.savings_balance || 0;
   const currentTotal = last.total_investment || 0;
   const inflationValue = last.inflation_adjusted || 0;
-
-  const nominalProfit = currentTotal - totalPrincipal; // 명목 수익
-  const realProfit = currentTotal - inflationValue; // 실질 수익 (물가 제외)
+  const realProfit = currentTotal - inflationValue;
   const realProfitRate =
     totalPrincipal > 0
       ? ((realProfit / totalPrincipal) * 100).toFixed(1)
@@ -119,54 +114,53 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-8 text-gray-900 font-sans">
-      <div className="max-w-6xl mx-auto">
-        <header className="mb-8 flex flex-col sm:flex-row justify-between items-end gap-4">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-8 text-gray-900 font-sans text-xs">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <header className="flex justify-between items-end">
           <div>
-            <h1 className="text-3xl font-black tracking-tighter text-blue-600 italic">
+            <h1 className="text-2xl font-black text-blue-600 italic">
               PURCHASING POWER
             </h1>
-            <p className="text-sm text-gray-500 font-medium mt-1">
-              물가 상승률을 제외한 실질 자산 증식 현황
+            <p className="text-[10px] text-gray-500 font-medium tracking-tight">
+              2021-2026.01 HISTORICAL REAL-DATA
             </p>
           </div>
-          <div className="bg-blue-600 px-6 py-3 rounded-2xl shadow-xl text-white text-right">
-            <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">
-              Real Profit Rate
+          <div className="bg-blue-600 px-4 py-2 rounded-xl text-white text-right shadow-lg">
+            <p className="text-[8px] font-bold opacity-70 uppercase">
+              Real Net Profit Rate
             </p>
-            <p className="text-2xl font-black">+{realProfitRate}%</p>
+            <p className="text-lg font-black">+{realProfitRate}%</p>
           </div>
         </header>
 
-        {/* 메인 카드 섹션 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 text-white">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-white">
           <Card
             theme="bg-blue-500"
-            icon={<TrendingUp />}
-            title="현재 총 자산"
+            icon={<TrendingUp size={20} />}
+            title="평가액 합계"
             value={`${currentTotal.toLocaleString()}원`}
-            sub="평가 금액 합계"
+            sub="환율 반영"
           />
           <Card
             theme="bg-emerald-500"
-            icon={<Landmark />}
-            title="누적 투자 원금"
+            icon={<Landmark size={20} />}
+            title="누적 투자금"
             value={`${totalPrincipal.toLocaleString()}원`}
-            sub="5년 총 납입금"
+            sub="61회차 적립"
           />
           <Card
-            theme="bg-indigo-600 shadow-indigo-200 shadow-2xl scale-105"
-            icon={<Zap />}
-            title="실질 수익 (순수증식)"
+            theme="bg-indigo-600"
+            icon={<Zap size={20} />}
+            title="실질 수익"
             value={`${realProfit.toLocaleString()}원`}
             sub="물가상승분 제외 결과"
           />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <div className="lg:col-span-2 bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100">
-            <h2 className="text-lg font-bold mb-6">구매력 성장 곡선</h2>
-            <div className="h-[350px] w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <h2 className="font-bold mb-4">구매력 성장 곡선</h2>
+            <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={data}>
                   <CartesianGrid
@@ -176,25 +170,25 @@ export default function Dashboard() {
                   />
                   <XAxis
                     dataKey="date"
-                    fontSize={10}
+                    fontSize={8}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v) => v?.slice(2, 7)}
+                    interval={5}
                   />
                   <YAxis hide domain={['auto', 'auto']} />
                   <Tooltip
                     formatter={(v) =>
                       Math.floor(Number(v)).toLocaleString() + '원'
                     }
-                    contentStyle={{ borderRadius: '16px', border: 'none' }}
                   />
-                  <Legend verticalAlign="top" height={36} />
+                  <Legend verticalAlign="top" height={30} iconSize={8} />
                   <Line
                     type="monotone"
                     dataKey="total_investment"
                     name="내 자산"
                     stroke="#3b82f6"
-                    strokeWidth={4}
+                    strokeWidth={3}
                     dot={false}
                   />
                   <Line
@@ -211,7 +205,7 @@ export default function Dashboard() {
                     dataKey="savings_balance"
                     name="단순 원금"
                     stroke="#10b981"
-                    strokeWidth={2}
+                    strokeWidth={1}
                     strokeDasharray="2 2"
                     dot={false}
                   />
@@ -219,19 +213,19 @@ export default function Dashboard() {
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <PieIcon size={20} /> 자산 구성
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center">
+            <h2 className="font-bold mb-4 self-start flex items-center gap-2">
+              <PieIcon size={16} /> 자산 구성
             </h2>
-            <div className="h-[250px] w-full">
+            <div className="h-[200px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={assetDetails}
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
+                    innerRadius={50}
+                    outerRadius={70}
                     paddingAngle={5}
                     dataKey="value"
                   >
@@ -247,31 +241,47 @@ export default function Dashboard() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
+            <div className="w-full space-y-1 mt-4">
+              {assetDetails.map((asset, idx) => (
+                <div
+                  key={idx}
+                  className="flex justify-between items-center px-2 text-[10px] text-gray-500"
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: asset.color }}
+                    ></div>
+                    {asset.name}
+                  </div>
+                  <span className="font-bold text-gray-900">
+                    {((asset.value / currentTotal) * 100).toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* 상세 테이블 */}
-        <div className="bg-white p-4 sm:p-8 rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          <h2 className="text-lg font-bold mb-6">
-            자산 실적 vs 인플레이션 상세
-          </h2>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <h2 className="font-bold mb-4">자산 실적 vs 인플레이션 상세</h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[600px]">
+            <table className="w-full text-left min-w-[500px]">
               <thead>
-                <tr className="border-b border-gray-100 text-gray-400 text-[10px] uppercase font-bold tracking-widest">
-                  <th className="pb-4">항목</th>
-                  <th className="pb-4 text-right">투자 원금</th>
-                  <th className="pb-4 text-right">현재 가치</th>
-                  <th className="pb-4 text-right">수익률</th>
+                <tr className="border-b border-gray-100 text-gray-400 text-[8px] uppercase font-bold tracking-widest">
+                  <th className="pb-3">항목</th>
+                  <th className="pb-3 text-right">투자 원금</th>
+                  <th className="pb-3 text-right">현재 가치</th>
+                  <th className="pb-3 text-right">수익률</th>
                 </tr>
               </thead>
-              <tbody className="text-sm font-medium">
+              <tbody>
                 {assetDetails.map((asset, idx) => (
                   <tr
                     key={idx}
                     className="border-b border-gray-50 last:border-0 hover:bg-gray-50"
                   >
-                    <td className="py-5 font-bold text-gray-700">
+                    <td className="py-3 font-bold text-gray-700">
                       {asset.name}
                     </td>
                     <td className="text-right text-gray-500">
@@ -281,20 +291,17 @@ export default function Dashboard() {
                       {Math.floor(asset.value).toLocaleString()}원
                     </td>
                     <td className="text-right">
-                      <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-black text-[10px]">
+                      <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-black text-[8px]">
                         +
-                        {(
-                          ((asset.value - asset.principal) / asset.principal) *
-                          100
-                        ).toFixed(1)}
+                        {((asset.value / asset.principal - 1) * 100).toFixed(1)}
                         %
                       </span>
                     </td>
                   </tr>
                 ))}
                 <tr className="bg-rose-50/50">
-                  <td className="py-5 font-bold text-rose-600 flex items-center gap-2">
-                    <Info size={14} /> 물가 상승 (화폐가치 하락)
+                  <td className="py-3 font-bold text-rose-600 flex items-center gap-2">
+                    <Info size={12} /> 물가 상승 (화폐가치 하락)
                   </td>
                   <td className="text-right text-gray-500">
                     {totalPrincipal.toLocaleString()}원
@@ -303,28 +310,25 @@ export default function Dashboard() {
                     {Math.floor(inflationValue).toLocaleString()}원
                   </td>
                   <td className="text-right">
-                    <span className="bg-rose-100 text-rose-600 px-3 py-1 rounded-full font-black text-[10px]">
+                    <span className="bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-black text-[8px]">
                       +
-                      {(
-                        ((inflationValue - totalPrincipal) / totalPrincipal) *
-                        100
-                      ).toFixed(1)}
+                      {((inflationValue / totalPrincipal - 1) * 100).toFixed(1)}
                       %
                     </span>
                   </td>
                 </tr>
-                <tr className="bg-indigo-50 border-t-2 border-indigo-100">
-                  <td className="py-6 font-black text-indigo-700 text-base uppercase">
+                <tr className="bg-indigo-50 border-t border-indigo-100 font-black">
+                  <td className="py-4 text-indigo-700 uppercase">
                     Real Profit (실질 수익)
                   </td>
                   <td className="text-right text-indigo-400">
-                    명목 {nominalProfit.toLocaleString()}원
+                    명목 {(currentTotal - totalPrincipal).toLocaleString()}원
                   </td>
-                  <td className="text-right font-black text-indigo-700 text-lg underline">
+                  <td className="text-right text-indigo-700 text-sm underline">
                     {realProfit.toLocaleString()}원
                   </td>
                   <td className="text-right">
-                    <span className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-black text-xs shadow-lg">
+                    <span className="bg-indigo-600 text-white px-3 py-1 rounded-lg font-black text-[8px]">
                       NET +{realProfitRate}%
                     </span>
                   </td>
@@ -341,15 +345,15 @@ export default function Dashboard() {
 function Card({ icon, title, value, sub, theme }: any) {
   return (
     <div
-      className={`${theme} p-6 rounded-3xl shadow-sm flex items-center gap-4 transition-transform hover:scale-105`}
+      className={`${theme} p-4 rounded-2xl shadow-sm flex items-center gap-3 transition-transform hover:scale-105`}
     >
-      <div className="p-3 bg-white/20 rounded-2xl">{icon}</div>
+      <div className="p-2 bg-white/20 rounded-xl">{icon}</div>
       <div>
-        <p className="text-[10px] font-bold uppercase mb-0.5 opacity-80">
+        <p className="text-[8px] font-bold uppercase mb-0.5 opacity-80">
           {title}
         </p>
-        <p className="text-xl font-black leading-tight">{value}</p>
-        <p className="text-[10px] font-bold mt-1 opacity-70">{sub}</p>
+        <p className="text-sm font-black leading-tight">{value}</p>
+        <p className="text-[8px] font-bold mt-0.5 opacity-70">{sub}</p>
       </div>
     </div>
   );

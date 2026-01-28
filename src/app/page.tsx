@@ -19,6 +19,7 @@ import {
   Landmark,
   ArrowRight,
   PieChart as PieIcon,
+  Info,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -44,11 +45,11 @@ export default function Dashboard() {
           .order('date', { ascending: true });
         if (error) throw error;
         if (dbData) {
-          // 컬럼명이 다를 경우를 대비한 매핑 로직
           const formatted = dbData.map((item) => ({
             ...item,
-            total_investment: item.total_investment || item.investment || 0,
-            savings_balance: item.savings_balance || item.savings || 0,
+            total_investment: item.total_investment || 0,
+            savings_balance: item.savings_balance || 0,
+            inflation_adjusted: item.inflation_adjusted || 0,
             details:
               typeof item.details === 'string'
                 ? JSON.parse(item.details)
@@ -68,20 +69,23 @@ export default function Dashboard() {
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">
-        DB 연결 및 데이터 로드 중...
+        데이터를 불러오는 중...
       </div>
     );
 
   const last = data[data.length - 1];
-
-  // 데이터가 없을 때 0으로 표시되는 것을 방지하기 위한 기본값 설정
   const totalPrincipal = last?.savings_balance || 0;
   const currentTotal = last?.total_investment || 0;
+  const inflationValue = last?.inflation_adjusted || 0; // DB에 저장된 물가 반영 수치
+
   const profit = currentTotal - totalPrincipal;
   const profitRate =
     totalPrincipal > 0 ? ((profit / totalPrincipal) * 100).toFixed(1) : '0.0';
+  const inflationRate =
+    totalPrincipal > 0
+      ? (((inflationValue - totalPrincipal) / totalPrincipal) * 100).toFixed(1)
+      : '0.0';
 
-  // DB의 details 필드에서 실제 계산된 종목별 금액 추출
   const d = last?.details || {};
   const assetDetails = [
     {
@@ -134,10 +138,10 @@ export default function Dashboard() {
         <header className="mb-8 flex flex-col sm:flex-row justify-between items-end gap-4">
           <div>
             <h1 className="text-3xl font-black tracking-tighter text-blue-600">
-              ASSET TRACKER v2.1
+              ASSET TRACKER v2.2
             </h1>
             <p className="text-sm text-gray-500 font-medium mt-1 uppercase tracking-widest">
-              Real-time Historical Simulation
+              Historical Performance vs Inflation
             </p>
           </div>
           <div className="bg-white border-2 border-blue-600 px-6 py-3 rounded-2xl text-right shadow-[4px_4px_0px_0px_rgba(37,99,235,1)]">
@@ -148,7 +152,6 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* 상단 요약 카드 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card
             icon={<TrendingUp />}
@@ -215,11 +218,19 @@ export default function Dashboard() {
                     strokeDasharray="5 5"
                     dot={false}
                   />
+                  <Line
+                    type="monotone"
+                    dataKey="inflation_adjusted"
+                    name="물가반영 원금"
+                    stroke="#f43f5e"
+                    strokeWidth={2}
+                    strokeDasharray="3 3"
+                    dot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
-
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center">
             <h2 className="text-lg font-bold mb-4 self-start flex items-center gap-2">
               <PieIcon size={20} /> 자산 구성비
@@ -251,14 +262,13 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 상세 테이블 섹션 */}
         <div className="bg-white p-4 sm:p-8 rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
           <h2 className="text-lg font-bold mb-6">종목별 실측 성과 상세</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-left min-w-[600px]">
               <thead>
                 <tr className="border-b border-gray-100 text-gray-400 text-[10px] uppercase font-bold tracking-widest">
-                  <th className="pb-4">종목명</th>
+                  <th className="pb-4 text-left">종목명</th>
                   <th className="pb-4 text-right">투자 원금</th>
                   <th className="pb-4 text-right">현재 평가액</th>
                   <th className="pb-4 text-right">누적 수익률</th>
@@ -290,6 +300,24 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ))}
+                {/* 물가상승률 행 추가 */}
+                <tr className="bg-rose-50/50">
+                  <td className="py-5 font-bold text-rose-600 flex items-center gap-3 pl-2">
+                    <Info size={14} />
+                    화폐 가치 하락 (물가상승)
+                  </td>
+                  <td className="text-right text-gray-500 font-medium">
+                    {totalPrincipal.toLocaleString()}원
+                  </td>
+                  <td className="text-right font-black text-rose-600">
+                    {Math.floor(inflationValue).toLocaleString()}원
+                  </td>
+                  <td className="text-right">
+                    <span className="bg-rose-100 text-rose-600 px-3 py-1 rounded-full font-black text-[10px]">
+                      +{inflationRate}%
+                    </span>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>

@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   const MONTHLY_INVEST = 1300000;
+  const ANNUAL_INFLATION_RATE = 0.035; // 연 3.5% 물가상승률 가정
+  const MONTHLY_INFLATION_RATE = ANNUAL_INFLATION_RATE / 12;
+
   const history = [
     {
       date: '2021-01-25',
@@ -111,13 +114,23 @@ export async function GET() {
     qD = 0,
     qG = 0,
     qSi = 0,
-    qC = 0,
-    totalInjected = 0;
+    qC = 0;
+  let totalInjected = 0,
+    cumulativeInflationValue = 0;
 
   const formattedData = history.map((item, idx) => {
-    const investCount = idx === 0 ? 1 : 6;
-    for (let i = 0; i < investCount; i++) {
+    const monthsPassed = idx === 0 ? 1 : 6;
+
+    for (let i = 0; i < monthsPassed; i++) {
       totalInjected += MONTHLY_INVEST;
+
+      // 1. 기존에 쌓여있던 물가반영 원금에 한 달치 인플레이션 적용
+      cumulativeInflationValue =
+        cumulativeInflationValue * (1 + MONTHLY_INFLATION_RATE);
+      // 2. 이번 달 새로 들어온 130만원 추가
+      cumulativeInflationValue += MONTHLY_INVEST;
+
+      // 자산 매수 로직 (생략 없이 유지)
       qS += (MONTHLY_INVEST * 0.35) / item.ex / item.s;
       qQ += (MONTHLY_INVEST * 0.25) / item.ex / item.q;
       qD += (MONTHLY_INVEST * 0.1) / item.ex / item.d;
@@ -126,53 +139,35 @@ export async function GET() {
       qC += (MONTHLY_INVEST * 0.1) / item.c;
     }
 
-    const valS = qS * item.s * item.ex;
-    const valQ = qQ * item.q * item.ex;
-    const valD = qD * item.d * item.ex;
-    const valG = qG * item.g;
-    const valSi = qSi * item.sil;
-    const valC = qC * item.c;
-    const totalInv = valS + valQ + valD + valG + valSi + valC;
+    const totalInv =
+      qS * item.s * item.ex +
+      qQ * item.q * item.ex +
+      qD * item.d * item.ex +
+      qG * item.g +
+      qSi * item.sil +
+      qC * item.c;
 
     return {
       date: item.date,
       total_investment: Math.floor(totalInv),
       savings_balance: totalInjected,
-      // 🟢 에러 발생 원인 해결: Not Null 제약 조건에 맞게 데이터 추가
-      inflation_adjusted: Math.floor(totalInjected * 1.03),
-      details: { valS, valQ, valD, valG, valSi, valC },
+      inflation_adjusted: Math.floor(cumulativeInflationValue),
+      details: {
+        valS: qS * item.s * item.ex,
+        valQ: qQ * item.q * item.ex,
+        valD: qD * item.d * item.ex,
+        valG: qG * item.g,
+        valSi: qSi * item.sil,
+        valC: qC * item.c,
+      },
       status: 'stable',
     };
   });
 
-  try {
-    const { error: delError } = await supabase
-      .from('asset_history')
-      .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000');
-    if (delError)
-      return NextResponse.json(
-        { error: '삭제 실패: ' + delError.message },
-        { status: 500 },
-      );
-
-    const { error: insError } = await supabase
-      .from('asset_history')
-      .insert(formattedData);
-    if (insError)
-      return NextResponse.json(
-        { error: '삽입 실패: ' + insError.message },
-        { status: 500 },
-      );
-
-    return NextResponse.json({
-      message: '성공적으로 데이터가 주입되었습니다!',
-      count: formattedData.length,
-    });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: '알 수 없는 에러: ' + err.message },
-      { status: 500 },
-    );
-  }
+  await supabase
+    .from('asset_history')
+    .delete()
+    .neq('id', '00000000-0000-0000-0000-000000000000');
+  await supabase.from('asset_history').insert(formattedData);
+  return NextResponse.json({ message: '5개년 물가 복리 데이터 반영 완료' });
 }

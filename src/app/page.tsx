@@ -739,15 +739,15 @@ export default function AssetSimulator() {
           <div className="bg-blue-600 px-6 py-3 rounded-2xl text-white shadow-xl flex items-center gap-4 animate-in slide-in-from-right duration-500">
             <div className="text-right border-r border-white/20 pr-4">
               <p className="text-[10px] font-bold opacity-70 uppercase">
-                Total Real Profit
+                전체 총 금액
               </p>
               <p className="text-2xl font-black leading-none">
-                +{realProfit.toLocaleString()}원
+                +{currentTotal.toLocaleString()}원
               </p>
             </div>
             <div className="text-right">
               <p className="text-[10px] font-bold opacity-70 uppercase">
-                Real Rate
+                수익률
               </p>
               <p className="text-2xl font-black leading-none">
                 +{realProfitRate}%

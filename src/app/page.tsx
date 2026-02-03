@@ -287,68 +287,74 @@ export default function RealDbTower() {
     let totalMonthlySpend = 0;
     let totalExpectedSpend = 0;
 
-    Object.keys(RATIOS)
-      .filter((k) => k !== 'cash')
-      .forEach((k) => {
-        const curP = currentPriceMap[k];
-        const prevP = prevPriceMap[k];
-        const drop = (curP / prevP - 1) * 100;
+    const assetKeys = Object.keys(RATIOS).filter((k) => k !== 'cash');
+    const dropByKey: Record<string, number> = {};
+    assetKeys.forEach((k) => {
+      const prevP = prevPriceMap[k] || 1;
+      dropByKey[k] = (currentPriceMap[k] / prevP - 1) * 100;
+    });
+    const droppedAssets = assetKeys.filter((k) => dropByKey[k] <= -10);
+    const halfRatioSum = assetKeys.reduce((s, k) => s + RATIOS[k] / 2, 0);
+    const totalDropWeight =
+      droppedAssets.length > 0
+        ? droppedAssets.reduce((s, k) => s + Math.abs(dropByKey[k]), 0)
+        : 0;
 
-        const baseAlloc = inputBudget * (RATIOS[k] / ratioSum);
-        let baseQty = 0;
-        if (k === 'btc') baseQty = baseAlloc / curP;
-        else baseQty = Math.floor(baseAlloc / curP);
+    assetKeys.forEach((k) => {
+      const curP = currentPriceMap[k];
+      const drop = dropByKey[k];
 
-        let extraQty = 0;
-        if (isPanicBuyMode && panicBudget > 0) {
-          let weight = RATIOS[k];
-          if (drop <= -10) weight += 2;
-          const targetWeight = (RATIOS[k] / ratioSum) * 100;
-          if (portfolio[k].weight < targetWeight - 2) weight += 1;
+      const baseAlloc = inputBudget * (RATIOS[k] / ratioSum);
+      let baseQty = 0;
+      if (k === 'btc') baseQty = baseAlloc / curP;
+      else baseQty = Math.floor(baseAlloc / curP);
 
-          const totalWeight = Object.keys(RATIOS)
-            .filter((rk) => rk !== 'cash')
-            .reduce((sum, rk) => {
-              const d =
-                ((currentPriceMap[rk] / prevPriceMap[rk] || 1) - 1) * 100;
-              let w = RATIOS[rk];
-              if (d <= -10) w += 2;
-              if (portfolio[rk].weight < (RATIOS[rk] / ratioSum) * 100 - 2)
-                w += 1;
-              return sum + w;
-            }, 0);
-
-          const extraAlloc = panicBudget * (weight / totalWeight);
-          if (k === 'btc') extraQty = extraAlloc / curP;
-          else extraQty = Math.floor(extraAlloc / curP);
+      let extraQty = 0;
+      if (isPanicBuyMode && panicBudget > 0) {
+        let extraAlloc = 0;
+        if (droppedAssets.length > 0) {
+          const partHalf =
+            halfRatioSum > 0
+              ? panicBudget * 0.5 * (RATIOS[k] / 2 / halfRatioSum)
+              : 0;
+          const partDrop =
+            totalDropWeight > 0 && drop <= -10
+              ? panicBudget * 0.5 * (Math.abs(drop) / totalDropWeight)
+              : 0;
+          extraAlloc = partHalf + partDrop;
+        } else {
+          extraAlloc = panicBudget * (RATIOS[k] / ratioSum);
         }
+        if (k === 'btc') extraQty = extraAlloc / curP;
+        else extraQty = Math.floor(extraAlloc / curP);
+      }
 
-        // 3. 수동 수정 반영 (Manual Override)
-        // 사용자가 입력한 값이 있으면 그걸 finalQty로 침
-        // baseQty는 유지하고, extraQty를 조절하는 방식으로 역산
-        let finalQty = baseQty + extraQty;
-        if (manualEdits[k] !== undefined) {
-          finalQty = manualEdits[k];
-          // 수동 수정 시 기본량은 그대로 두고 추가량으로 처리 (혹은 반대)
-          // 여기선 baseQty를 우선 채우고 나머지를 extra로 간주
-          extraQty = Math.max(0, finalQty - baseQty);
-        }
+      // 3. 수동 수정 반영 (Manual Override)
+      // 사용자가 입력한 값이 있으면 그걸 finalQty로 침
+      // baseQty는 유지하고, extraQty를 조절하는 방식으로 역산
+      let finalQty = baseQty + extraQty;
+      if (manualEdits[k] !== undefined) {
+        finalQty = manualEdits[k];
+        // 수동 수정 시 기본량은 그대로 두고 추가량으로 처리 (혹은 반대)
+        // 여기선 baseQty를 우선 채우고 나머지를 extra로 간주
+        extraQty = Math.max(0, finalQty - baseQty);
+      }
 
-        const spent = finalQty * curP;
-        const baseSpent = baseQty * curP;
-        const actualBaseSpent = Math.min(spent, baseSpent);
-        totalMonthlySpend += actualBaseSpent;
-        totalExpectedSpend += spent;
+      const spent = finalQty * curP;
+      const baseSpent = baseQty * curP;
+      const actualBaseSpent = Math.min(spent, baseSpent);
+      totalMonthlySpend += actualBaseSpent;
+      totalExpectedSpend += spent;
 
-        guide[k] = {
-          qty: finalQty,
-          baseQty,
-          extraQty,
-          price: curP,
-          spent,
-          drop,
-        };
-      });
+      guide[k] = {
+        qty: finalQty,
+        baseQty,
+        extraQty,
+        price: curP,
+        spent,
+        drop,
+      };
+    });
 
     const thisMonthResidue = inputBudget - totalMonthlySpend;
     return { guide, thisMonthResidue, totalExpectedSpend };

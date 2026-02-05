@@ -54,22 +54,18 @@ const COLORS = [
 ];
 const NAMES: Record<string, string> = {
   nasdaq: '나스닥100',
-  dividend: '배당다우존스',
-  semi: '미국반도체',
   snp: 'S&P500',
   gold: '금은선물(H)',
   cash: '현금(CMA)',
   btc: '비트코인',
 };
-// 기본 비중 (전체 합 11.5: 주식/코인 10.5 + 현금 1)
+// 나스닥 7 : S&P 3 + 금은·코인·현금 각 1 (합 13)
 const DEFAULT_RATIOS: Record<string, number> = {
-  nasdaq: 2,
-  dividend: 2,
-  semi: 2,
-  snp: 2,
-  gold: 2,
+  nasdaq: 7,
+  snp: 3,
+  gold: 1,
   cash: 1,
-  btc: 0.5,
+  btc: 1,
 };
 
 export default function RealDbTower() {

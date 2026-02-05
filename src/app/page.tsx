@@ -53,15 +53,17 @@ const COLORS = [
   '#f43f5e',
 ];
 const NAMES: Record<string, string> = {
+  tech10: '테크TOP10',
   nasdaq: '나스닥100',
   snp: 'S&P500',
   gold: '금은선물(H)',
   cash: '현금(CMA)',
   btc: '비트코인',
 };
-// 나스닥 7 : S&P 3 + 금은·코인·현금 각 1 (합 13)
+// 테크TOP10 3, 나스닥 3, S&P 3, 금은·현금·비트코인 각 1 (합 12)
 const DEFAULT_RATIOS: Record<string, number> = {
-  nasdaq: 7,
+  tech10: 3,
+  nasdaq: 3,
   snp: 3,
   gold: 1,
   cash: 1,
@@ -297,16 +299,18 @@ export default function RealDbTower() {
         : 0;
 
     assetKeys.forEach((k) => {
-      const curP = currentPriceMap[k];
+      const curP = Number(currentPriceMap[k]) || 0;
       const drop = dropByKey[k];
 
       const baseAlloc = inputBudget * (RATIOS[k] / ratioSum);
       let baseQty = 0;
-      if (k === 'btc') baseQty = baseAlloc / curP;
-      else baseQty = Math.floor(baseAlloc / curP);
+      if (curP > 0) {
+        if (k === 'btc') baseQty = baseAlloc / curP;
+        else baseQty = Math.floor(baseAlloc / curP);
+      }
 
       let extraQty = 0;
-      if (isPanicBuyMode && panicBudget > 0) {
+      if (isPanicBuyMode && panicBudget > 0 && curP > 0) {
         let extraAlloc = 0;
         if (droppedAssets.length > 0) {
           const partHalf =
@@ -326,15 +330,14 @@ export default function RealDbTower() {
       }
 
       // 3. 수동 수정 반영 (Manual Override)
-      // 사용자가 입력한 값이 있으면 그걸 finalQty로 침
-      // baseQty는 유지하고, extraQty를 조절하는 방식으로 역산
       let finalQty = baseQty + extraQty;
       if (manualEdits[k] !== undefined) {
         finalQty = manualEdits[k];
-        // 수동 수정 시 기본량은 그대로 두고 추가량으로 처리 (혹은 반대)
-        // 여기선 baseQty를 우선 채우고 나머지를 extra로 간주
         extraQty = Math.max(0, finalQty - baseQty);
       }
+      if (!Number.isFinite(finalQty) || finalQty < 0) finalQty = 0;
+      if (!Number.isFinite(baseQty) || baseQty < 0) baseQty = 0;
+      if (!Number.isFinite(extraQty) || extraQty < 0) extraQty = 0;
 
       const spent = finalQty * curP;
       const baseSpent = baseQty * curP;
@@ -347,8 +350,8 @@ export default function RealDbTower() {
         baseQty,
         extraQty,
         price: curP,
-        spent,
-        drop,
+        spent: Number.isFinite(spent) ? spent : 0,
+        drop: Number.isFinite(drop) ? drop : 0,
       };
     });
 
@@ -831,7 +834,7 @@ export default function RealDbTower() {
                     <input
                       type="number"
                       step={k === 'btc' ? '0.000001' : '1'}
-                      value={guide[k].qty}
+                      value={Number.isFinite(guide[k].qty) ? guide[k].qty : 0}
                       onChange={(e) =>
                         setManualEdits({
                           ...manualEdits,

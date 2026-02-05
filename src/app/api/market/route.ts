@@ -9,8 +9,9 @@ export async function GET() {
     const start = new Date();
     start.setFullYear(end.getFullYear() - 10);
 
-    // 나스닥100 + S&P500 주력, 금은선물·코인 소량, 환율
+    // 테크TOP10·나스닥·S&P 주력, 금은·코인·현금
     const symbols: Record<string, string> = {
+      tech10: '381170.KS', // TIGER 미국테크TOP10 INDXX
       nasdaq: '133690.KS', // TIGER 미국나스닥100
       snp: '360750.KS', // TIGER 미국S&P500
       gold: '139320.KS', // TIGER 금은선물(H)
@@ -41,7 +42,7 @@ export async function GET() {
     const allData = await Promise.all(
       Object.entries(symbols).map(([k, s]) => fetchAsset(k, s))
     );
-    const master = allData.find((d) => d.key === 'nasdaq')?.quotes || [];
+    const master = allData.find((d) => d.key === 'tech10')?.quotes || [];
 
     const formatted = master
       .map((m) => {
@@ -51,6 +52,7 @@ export async function GET() {
         const ex = findP('ex') || 1350;
         return {
           d: m.d,
+          tech10: findP('tech10'),
           nasdaq: findP('nasdaq'),
           snp: findP('snp'),
           gold: findP('gold'),
@@ -58,7 +60,7 @@ export async function GET() {
           ex,
         };
       })
-      .filter((i) => i.nasdaq > 0);
+      .filter((i) => i.tech10 > 0);
 
     return NextResponse.json(formatted);
   } catch (e: any) {

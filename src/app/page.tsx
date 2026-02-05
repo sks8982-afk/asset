@@ -309,16 +309,27 @@ export default function RealDbTower() {
       myAccount;
     const RATIOS = getRatios();
 
-    let panicBudget = 0;
-    if (isPanicBuyMode) {
-      panicBudget = currentCashBalance * 0.9;
-    }
-
     const guide: any = {};
     let totalMonthlySpend = 0;
     let totalExpectedSpend = 0;
 
     const assetKeys = Object.keys(RATIOS).filter((k) => k !== 'cash');
+
+    // 추매 예산 계산: 보유 현금 + 이번 달 잔여 예산의 90%
+    let panicBudget = 0;
+    if (isPanicBuyMode) {
+      let baseMonthlySpendEstimate = 0;
+      assetKeys.forEach((k) => {
+        const curP = Number(currentPriceMap[k]) || 0;
+        if (curP <= 0) return;
+        const baseAlloc = inputBudget * (RATIOS[k] / ratioSum);
+        const estBaseQty =
+          k === 'btc' ? baseAlloc / curP : Math.floor(baseAlloc / curP);
+        baseMonthlySpendEstimate += estBaseQty * curP;
+      });
+      const estResidue = Math.max(0, inputBudget - baseMonthlySpendEstimate);
+      panicBudget = (currentCashBalance + estResidue) * 0.99;
+    }
     const dropByKey: Record<string, number> = {};
     assetKeys.forEach((k) => {
       const prevP = prevPriceMap[k] || 1;
@@ -375,8 +386,11 @@ export default function RealDbTower() {
       const spent = finalQty * curP;
       const baseSpent = baseQty * curP;
       const actualBaseSpent = Math.min(spent, baseSpent);
-      const monthlySpendContribution =
-        manualEdits[k] !== undefined ? spent : actualBaseSpent;
+      const monthlySpendContribution = isPanicBuyMode
+        ? spent
+        : manualEdits[k] !== undefined
+        ? spent
+        : actualBaseSpent;
       totalMonthlySpend += monthlySpendContribution;
       totalExpectedSpend += spent;
 
@@ -390,7 +404,9 @@ export default function RealDbTower() {
       };
     });
 
-    const thisMonthResidue = inputBudget - totalMonthlySpend;
+    const thisMonthResidue = isPanicBuyMode
+      ? inputBudget + myAccount.currentCashBalance - totalMonthlySpend
+      : inputBudget - totalMonthlySpend;
     return { guide, thisMonthResidue, totalExpectedSpend };
   }, [
     myAccount,
@@ -812,7 +828,7 @@ export default function RealDbTower() {
                 Smart Panic Buying
               </p>
               <p className="text-xl font-black">
-                {isPanicBuyMode ? '비상금 90% 투입 중' : '추매 기회 대기'}
+                {isPanicBuyMode ? '비상금 99% 투입 중' : '추매 기회 대기'}
               </p>
             </div>
           </button>
@@ -928,12 +944,25 @@ export default function RealDbTower() {
                 {formatNum(thisMonthResidue)}원
               </p>
               <div className="mt-3 pt-3 border-t border-white/10">
-                <p className="text-[10px] opacity-60">
-                  이번달 입금액 - 주식매수액
-                </p>
-                <p className="text-[10px] opacity-60 text-emerald-400">
-                  (하락장 비상금 사용분 제외)
-                </p>
+                {isPanicBuyMode ? (
+                  <>
+                    <p className="text-[10px] opacity-60">
+                      이번달 입금액 + 통장잔고 - 총 매수액
+                    </p>
+                    <p className="text-[10px] opacity-60 text-emerald-400">
+                      (비상금까지 포함해 99% 투입 기준)
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[10px] opacity-60">
+                      이번달 입금액 - 주식매수액
+                    </p>
+                    <p className="text-[10px] opacity-60 text-emerald-400">
+                      (하락장 비상금 사용분 제외)
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>

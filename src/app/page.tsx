@@ -37,6 +37,7 @@ import { supabase } from '@/lib/supabase';
 const STORAGE_KEYS = {
   dark: 'asset-tracker-dark',
   ratios: 'asset-tracker-ratios',
+  budget: 'asset-tracker-budget',
   goalRoi: 'asset-tracker-goal-roi',
   goalAsset: 'asset-tracker-goal-asset',
   goalRoiShown: 'asset-tracker-goal-roi-shown',
@@ -71,8 +72,13 @@ const DEFAULT_RATIOS: Record<string, number> = {
 };
 
 export default function RealDbTower() {
-  const [inputBudget, setInputBudget] = useState(1200000);
+  const [inputBudget, setInputBudget] = useState(() =>
+    typeof window === 'undefined'
+      ? 1300000
+      : Number(localStorage.getItem(STORAGE_KEYS.budget)) || 1300000
+  );
   const [marketData, setMarketData] = useState<any[]>([]);
+  const [livePrices, setLivePrices] = useState<any | null>(null);
   const [dbHistory, setDbHistory] = useState<{
     budgets: any[];
     records: any[];
@@ -109,6 +115,7 @@ export default function RealDbTower() {
   const [historyFilterAsset, setHistoryFilterAsset] = useState<string>('');
   const [showHistory, setShowHistory] = useState(false);
   const [showDeposits, setShowDeposits] = useState(false);
+  const [isRefreshingPrice, setIsRefreshingPrice] = useState(false);
 
   const getRatios = useCallback((): Record<string, number> => {
     return customRatios ?? DEFAULT_RATIOS;
@@ -120,20 +127,33 @@ export default function RealDbTower() {
   }, [getRatios]);
 
   const loadAllData = async () => {
-    const res = await fetch('/api/market');
-    const mData = await res.json();
-    if (Array.isArray(mData))
-      setMarketData(mData.filter((d) => d.d >= '2025-01'));
-    const { data: bData } = await supabase
-      .from('monthly_budgets')
-      .select('*')
-      .order('month_date', { ascending: true });
-    const { data: rData } = await supabase
-      .from('investment_records')
-      .select('*')
-      .order('date', { ascending: true });
-    setDbHistory({ budgets: bData || [], records: rData || [] });
-    setLoading(false);
+    setIsRefreshingPrice(true);
+    try {
+      const res = await fetch('/api/market');
+      const payload = await res.json();
+
+      if (Array.isArray(payload)) {
+        setMarketData(payload.filter((d) => d.d >= '2025-01'));
+        setLivePrices(payload[payload.length - 1] || null);
+      } else {
+        const { history, latest } = payload;
+        if (Array.isArray(history))
+          setMarketData(history.filter((d: any) => d.d >= '2025-01'));
+        setLivePrices(latest || null);
+      }
+      const { data: bData } = await supabase
+        .from('monthly_budgets')
+        .select('*')
+        .order('month_date', { ascending: true });
+      const { data: rData } = await supabase
+        .from('investment_records')
+        .select('*')
+        .order('date', { ascending: true });
+      setDbHistory({ budgets: bData || [], records: rData || [] });
+    } finally {
+      setLoading(false);
+      setIsRefreshingPrice(false);
+    }
   };
 
   useEffect(() => {
@@ -156,6 +176,18 @@ export default function RealDbTower() {
       }
   }, []);
 
+  useEffect(() => {
+    const raw = localStorage.getItem(STORAGE_KEYS.budget);
+    if (!raw) return;
+    const v = Number(raw);
+    if (Number.isFinite(v) && v > 0) setInputBudget(v);
+  }, []);
+
+  useEffect(() => {
+    if (Number.isFinite(inputBudget) && inputBudget > 0)
+      localStorage.setItem(STORAGE_KEYS.budget, String(inputBudget));
+  }, [inputBudget]);
+
   const saveCustomRatios = useCallback(
     (ratios: Record<string, number> | null) => {
       setCustomRatios(ratios);
@@ -169,8 +201,9 @@ export default function RealDbTower() {
   // 1. 내 자산 현황 분석 (DB 기준)
   const myAccount = useMemo(() => {
     if (!marketData.length) return null;
-    const currentPriceMap = marketData[marketData.length - 1];
-    const prevPriceMap = marketData[marketData.length - 2] || currentPriceMap;
+    const lastHistoryPoint = marketData[marketData.length - 1];
+    const currentPriceMap = livePrices || lastHistoryPoint;
+    const prevPriceMap = marketData[marketData.length - 2] || lastHistoryPoint;
 
     const totalDeposit = dbHistory.budgets.reduce(
       (acc, cur) => acc + Number(cur.amount),
@@ -267,7 +300,7 @@ export default function RealDbTower() {
       chartHistory,
       currentExchangeRate,
     };
-  }, [marketData, dbHistory]);
+  }, [marketData, dbHistory, livePrices]);
 
   // 2. 매수 가이드 계산 (핵심 로직)
   const buyPlan = useMemo(() => {
@@ -342,7 +375,9 @@ export default function RealDbTower() {
       const spent = finalQty * curP;
       const baseSpent = baseQty * curP;
       const actualBaseSpent = Math.min(spent, baseSpent);
-      totalMonthlySpend += actualBaseSpent;
+      const monthlySpendContribution =
+        manualEdits[k] !== undefined ? spent : actualBaseSpent;
+      totalMonthlySpend += monthlySpendContribution;
       totalExpectedSpend += spent;
 
       guide[k] = {
@@ -531,6 +566,7 @@ export default function RealDbTower() {
     isCrash,
     chartHistory,
     currentExchangeRate,
+    currentPriceMap,
   } = myAccount;
   const { guide, thisMonthResidue, totalExpectedSpend } = buyPlan;
   const formatNum = (n: number) => Math.floor(n).toLocaleString();
@@ -621,6 +657,20 @@ export default function RealDbTower() {
               <Settings size={20} />
             </button>
             <button
+              onClick={loadAllData}
+              disabled={isRefreshingPrice}
+              className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-2 disabled:opacity-60"
+              title="시세 새로고침"
+            >
+              <RefreshCcw
+                size={18}
+                className={isRefreshingPrice ? 'animate-spin' : ''}
+              />
+              <span className="text-xs font-bold hidden sm:inline">
+                시세 새로고침
+              </span>
+            </button>
+            <button
               onClick={handleResetDB}
               className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-500 hover:border-rose-200 transition-all flex flex-col items-center justify-center gap-1"
             >
@@ -669,7 +719,7 @@ export default function RealDbTower() {
               onBlur={() =>
                 localStorage.setItem(STORAGE_KEYS.goalRoi, String(goalRoi))
               }
-              className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold"
+              className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold text-slate-900 dark:text-slate-100"
             />
             <span className="text-xs text-slate-500">%</span>
           </label>
@@ -686,7 +736,7 @@ export default function RealDbTower() {
               onBlur={() =>
                 localStorage.setItem(STORAGE_KEYS.goalAsset, String(goalAsset))
               }
-              className="w-32 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold"
+              className="w-32 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold text-slate-900 dark:text-slate-100"
             />
             <span className="text-xs text-slate-500">원</span>
           </label>
@@ -924,6 +974,16 @@ export default function RealDbTower() {
                     v != null ? v + '%' : ''
                   }
                   labelFormatter={(l) => l}
+                  contentStyle={{
+                    backgroundColor: darkMode ? '#020617' : '#ffffff',
+                    border: '1px solid #64748b',
+                    color: darkMode ? '#e5e7eb' : '#0f172a',
+                    fontSize: 10,
+                  }}
+                  labelStyle={{
+                    color: darkMode ? '#e5e7eb' : '#0f172a',
+                    fontWeight: 700,
+                  }}
                 />
                 <Legend />
                 <Bar
@@ -970,6 +1030,16 @@ export default function RealDbTower() {
                   <Tooltip
                     formatter={(v: any) => formatNum(v) + '원'}
                     labelFormatter={(l) => l}
+                    contentStyle={{
+                      backgroundColor: darkMode ? '#020617' : '#ffffff',
+                      border: '1px solid #64748b',
+                      color: darkMode ? '#e5e7eb' : '#0f172a',
+                      fontSize: 10,
+                    }}
+                    labelStyle={{
+                      color: darkMode ? '#e5e7eb' : '#0f172a',
+                      fontWeight: 700,
+                    }}
                   />
                   <Legend
                     iconType="circle"
@@ -1045,6 +1115,15 @@ export default function RealDbTower() {
                         >
                           {p.roi.toFixed(1)}% {p.roi >= 0 ? '▲' : '▼'}
                         </p>
+                        {p.qty > 0 && p.avg > 0 && (
+                          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                            현재가 대비{' '}
+                            {(
+                              (currentPriceMap[k] / p.avg - 1 || 0) * 100
+                            ).toFixed(1)}
+                            %
+                          </p>
+                        )}
                       </div>
                     </div>
                   );
@@ -1076,7 +1155,7 @@ export default function RealDbTower() {
                 <select
                   value={historyFilterMonth}
                   onChange={(e) => setHistoryFilterMonth(e.target.value)}
-                  className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800"
+                  className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-100"
                 >
                   <option value="">전체 월</option>
                   {Array.from(
@@ -1093,7 +1172,7 @@ export default function RealDbTower() {
                 <select
                   value={historyFilterAsset}
                   onChange={(e) => setHistoryFilterAsset(e.target.value)}
-                  className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800"
+                  className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-100"
                 >
                   <option value="">전체 종목</option>
                   {Object.entries(NAMES)
@@ -1106,8 +1185,8 @@ export default function RealDbTower() {
                 </select>
               </div>
               <div className="overflow-x-auto max-h-[240px] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-600">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-100 dark:bg-slate-700 sticky top-0">
+                <table className="w-full text-xs text-slate-700 dark:text-slate-100">
+                  <thead className="bg-slate-100 dark:bg-slate-700 sticky top-0 text-slate-900 dark:text-slate-100">
                     <tr>
                       <th className="px-3 py-2 text-left font-black">날짜</th>
                       <th className="px-3 py-2 text-left font-black">종목</th>
@@ -1147,7 +1226,7 @@ export default function RealDbTower() {
                       <tr>
                         <td
                           colSpan={6}
-                          className="px-3 py-6 text-center text-slate-400"
+                          className="px-3 py-6 text-center text-slate-400 dark:text-slate-500"
                         >
                           기록 없음
                         </td>
@@ -1179,8 +1258,8 @@ export default function RealDbTower() {
           </button>
           {showDeposits && (
             <div className="overflow-x-auto max-h-[200px] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-600">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-100 dark:bg-slate-700 sticky top-0">
+              <table className="w-full text-xs text-slate-700 dark:text-slate-100">
+                <thead className="bg-slate-100 dark:bg-slate-700 sticky top-0 text-slate-900 dark:text-slate-100">
                   <tr>
                     <th className="px-3 py-2 text-left font-black">월</th>
                     <th className="px-3 py-2 text-right font-black">입금액</th>
@@ -1202,7 +1281,7 @@ export default function RealDbTower() {
                     <tr>
                       <td
                         colSpan={2}
-                        className="px-3 py-6 text-center text-slate-400"
+                        className="px-3 py-6 text-center text-slate-400 dark:text-slate-500"
                       >
                         기록 없음
                       </td>
@@ -1240,6 +1319,26 @@ export default function RealDbTower() {
                   각 자산의 목표 비중을 입력하세요. 합이 일치하지 않아도 비율로
                   사용됩니다.
                 </p>
+                <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600">
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                    기본 월 투자금액
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9,]*"
+                      value={inputBudget.toLocaleString()}
+                      onChange={(e) =>
+                        setInputBudget(
+                          Number(e.target.value.replace(/[^0-9]/g, '')) || 0
+                        )
+                      }
+                      className="w-32 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-bold text-right text-slate-900 dark:text-slate-100"
+                    />
+                    <span className="text-xs text-slate-500">원</span>
+                  </div>
+                </div>
                 {Object.keys(DEFAULT_RATIOS).map((k) => (
                   <label
                     key={k}
@@ -1264,7 +1363,7 @@ export default function RealDbTower() {
                           return next;
                         });
                       }}
-                      className="w-24 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold"
+                      className="w-24 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold text-slate-900 dark:text-slate-100"
                     />
                   </label>
                 ))}

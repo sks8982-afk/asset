@@ -44,7 +44,7 @@ export async function GET() {
     );
     const master = allData.find((d) => d.key === 'tech10')?.quotes || [];
 
-    const formatted = master
+    const history = master
       .map((m) => {
         const findP = (k: string) =>
           allData.find((d) => d.key === k)?.quotes.find((q) => q.d === m.d)
@@ -62,7 +62,29 @@ export async function GET() {
       })
       .filter((i) => i.tech10 > 0);
 
-    return NextResponse.json(formatted);
+    // 실시간 시세 (일단 새로고침 시점 기준 quote 사용)
+    const latest: any = {};
+    // 환율 실시간
+    const exQuote: any = await yf.quote(symbols.ex);
+    const exLive =
+      (exQuote && typeof exQuote.regularMarketPrice === 'number'
+        ? exQuote.regularMarketPrice
+        : history[history.length - 1]?.ex) || 1350;
+    latest.ex = exLive;
+
+    // 각 자산 실시간 시세
+    for (const [key, symbol] of Object.entries(symbols)) {
+      if (key === 'ex') continue;
+      const q: any = await yf.quote(symbol);
+      const p =
+        q && typeof q.regularMarketPrice === 'number'
+          ? q.regularMarketPrice
+          : 0;
+      if (key === 'btc') latest.btc = p * exLive;
+      else latest[key] = p;
+    }
+
+    return NextResponse.json({ history, latest });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

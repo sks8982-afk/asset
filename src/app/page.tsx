@@ -116,6 +116,10 @@ export default function RealDbTower() {
   const [showHistory, setShowHistory] = useState(false);
   const [showDeposits, setShowDeposits] = useState(false);
   const [isRefreshingPrice, setIsRefreshingPrice] = useState(false);
+  const [chartLegendHidden, setChartLegendHidden] = useState<{
+    investment: boolean;
+    principal: boolean;
+  }>({ investment: false, principal: false });
 
   const getRatios = useCallback((): Record<string, number> => {
     return customRatios ?? DEFAULT_RATIOS;
@@ -251,8 +255,8 @@ export default function RealDbTower() {
           totalAssetVal > 0 ? (portfolio[k].val / totalAssetVal) * 100 : 0;
     });
 
-    // 차트 데이터 (DB기반 역추적)
-    const chartHistory = marketData.map((mPoint) => {
+    // 차트 데이터 (DB기반 역추적) — 과거는 월별 시세, 마지막은 실시간 시세 반영
+    const chartHistoryRaw = marketData.map((mPoint) => {
       const date = mPoint.d;
       const depositUntilNow = dbHistory.budgets
         .filter((b) => b.month_date.substring(0, 7) <= date)
@@ -279,6 +283,17 @@ export default function RealDbTower() {
         investment: stockValUntilNow + cashUntilNow,
       };
     });
+
+    // 마지막 시점: 실시간 시세(livePrices)가 있으면 총자산만 현재 시세 기준으로 덮어씀
+    const chartHistory =
+      chartHistoryRaw.length === 0
+        ? chartHistoryRaw
+        : livePrices
+          ? chartHistoryRaw.slice(0, -1).concat({
+              ...chartHistoryRaw[chartHistoryRaw.length - 1],
+              investment: totalStockValue + currentCashBalance,
+            })
+          : chartHistoryRaw;
 
     const isCrash = Object.keys(NAMES).some(
       (k) =>
@@ -1071,26 +1086,76 @@ export default function RealDbTower() {
                     }}
                   />
                   <Legend
-                    iconType="circle"
-                    wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }}
+                    content={() => (
+                      <div className="flex flex-wrap gap-4 justify-center mt-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setChartLegendHidden((p) => ({
+                              ...p,
+                              investment: !p.investment,
+                            }))
+                          }
+                          className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
+                            chartLegendHidden.investment
+                              ? 'opacity-50'
+                              : 'opacity-100'
+                          } ${darkMode ? 'text-slate-200' : 'text-slate-700'}`}
+                        >
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: '#3b82f6' }}
+                          />
+                          총 자산
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setChartLegendHidden((p) => ({
+                              ...p,
+                              principal: !p.principal,
+                            }))
+                          }
+                          className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
+                            chartLegendHidden.principal
+                              ? 'opacity-50'
+                              : 'opacity-100'
+                          } ${darkMode ? 'text-slate-200' : 'text-slate-700'}`}
+                        >
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{
+                              backgroundColor: darkMode
+                                ? '#4ade80'
+                                : '#22c55e',
+                            }}
+                          />
+                          누적 원금
+                        </button>
+                      </div>
+                    )}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="investment"
-                    name="총 자산"
-                    stroke="#3b82f6"
-                    strokeWidth={3}
-                    dot={true}
-                  />
-                  <Line
-                    type="step"
-                    dataKey="principal"
-                    name="누적 원금"
-                    stroke="#94a3b8"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                  />
+                  {!chartLegendHidden.investment && (
+                    <Line
+                      type="monotone"
+                      dataKey="investment"
+                      name="총 자산"
+                      stroke="#3b82f6"
+                      strokeWidth={3}
+                      dot={true}
+                    />
+                  )}
+                  {!chartLegendHidden.principal && (
+                    <Line
+                      type="monotone"
+                      dataKey="principal"
+                      name="누적 원금"
+                      stroke={darkMode ? '#4ade80' : '#22c55e'}
+                      strokeWidth={2.5}
+                      strokeDasharray="6 4"
+                      dot={{ r: 2, fill: darkMode ? '#4ade80' : '#22c55e' }}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>

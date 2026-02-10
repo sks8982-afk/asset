@@ -70,6 +70,8 @@ const DEFAULT_RATIOS: Record<string, number> = {
   cash: 1,
   btc: 1,
 };
+/** DB 초기화 시 필요한 비밀번호 (일단 하드코딩) */
+const RESET_DB_PASSWORD = '134679';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useState(() =>
@@ -120,6 +122,8 @@ export default function RealDbTower() {
     investment: boolean;
     principal: boolean;
   }>({ investment: false, principal: false });
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [resetPasswordInput, setResetPasswordInput] = useState('');
 
   const getRatios = useCallback((): Record<string, number> => {
     return customRatios ?? DEFAULT_RATIOS;
@@ -514,7 +518,6 @@ export default function RealDbTower() {
   };
 
   const handleResetDB = async () => {
-    if (!confirm('🚨 초기화하시겠습니까? (복구 불가)')) return;
     setIsSaving(true);
     await supabase
       .from('investment_records')
@@ -527,6 +530,17 @@ export default function RealDbTower() {
     alert('초기화됨');
     loadAllData();
     setIsSaving(false);
+  };
+
+  const onConfirmResetDB = async () => {
+    if (resetPasswordInput !== RESET_DB_PASSWORD) {
+      alert('비밀번호가 올바르지 않습니다.');
+      return;
+    }
+    setShowResetPasswordModal(false);
+    setResetPasswordInput('');
+    if (!confirm('🚨 정말 DB를 초기화하시겠습니까? (복구 불가)')) return;
+    await handleResetDB();
   };
 
   const handleExportCSV = useCallback(() => {
@@ -702,7 +716,7 @@ export default function RealDbTower() {
               </span>
             </button>
             <button
-              onClick={handleResetDB}
+              onClick={() => setShowResetPasswordModal(true)}
               className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-500 hover:border-rose-200 transition-all flex flex-col items-center justify-center gap-1"
             >
               <Trash2 size={18} />
@@ -1386,6 +1400,59 @@ export default function RealDbTower() {
             </div>
           )}
         </section>
+
+        {/* DB 초기화 비밀번호 모달 */}
+        {showResetPasswordModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+            onClick={() => {
+              setShowResetPasswordModal(false);
+              setResetPasswordInput('');
+            }}
+          >
+            <div
+              className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-600 shadow-2xl max-w-sm w-full p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
+                <Trash2 size={20} className="text-rose-500" /> DB 초기화
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                비밀번호를 입력하면 모든 투자 기록과 월별 예산이 삭제됩니다.
+              </p>
+              <input
+                type="password"
+                inputMode="numeric"
+                placeholder="비밀번호"
+                value={resetPasswordInput}
+                onChange={(e) => setResetPasswordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onConfirmResetDB();
+                }}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 mb-4"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowResetPasswordModal(false);
+                    setResetPasswordInput('');
+                  }}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={onConfirmResetDB}
+                  disabled={isSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm hover:bg-rose-700 disabled:opacity-50"
+                >
+                  {isSaving ? '처리 중…' : '초기화 실행'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 설정 모달 */}
         {showSettings && (

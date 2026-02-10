@@ -124,6 +124,9 @@ export default function RealDbTower() {
   }>({ investment: false, principal: false });
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [resetPasswordInput, setResetPasswordInput] = useState('');
+  const [showPanicBuyPasswordModal, setShowPanicBuyPasswordModal] =
+    useState(false);
+  const [panicBuyPasswordInput, setPanicBuyPasswordInput] = useState('');
 
   const getRatios = useCallback((): Record<string, number> => {
     return customRatios ?? DEFAULT_RATIOS;
@@ -517,6 +520,16 @@ export default function RealDbTower() {
     setIsSaving(false);
   };
 
+  const onConfirmPanicBuySave = async () => {
+    if (panicBuyPasswordInput !== RESET_DB_PASSWORD) {
+      alert('비밀번호가 올바르지 않습니다.');
+      return;
+    }
+    setShowPanicBuyPasswordModal(false);
+    setPanicBuyPasswordInput('');
+    await handleSaveToDB();
+  };
+
   const handleResetDB = async () => {
     setIsSaving(true);
     await supabase
@@ -880,7 +893,7 @@ export default function RealDbTower() {
               </span>
             </div>
             <button
-              onClick={handleSaveToDB}
+              onClick={() => setShowPanicBuyPasswordModal(true)}
               disabled={isSaving}
               className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-sm flex items-center gap-2 hover:bg-blue-700 transition-all disabled:opacity-50 shadow-lg hover:shadow-blue-500/30"
             >
@@ -1448,6 +1461,59 @@ export default function RealDbTower() {
                   className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm hover:bg-rose-700 disabled:opacity-50"
                 >
                   {isSaving ? '처리 중…' : '초기화 실행'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 장부 기록 비밀번호 모달 */}
+        {showPanicBuyPasswordModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+            onClick={() => {
+              setShowPanicBuyPasswordModal(false);
+              setPanicBuyPasswordInput('');
+            }}
+          >
+            <div
+              className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-600 shadow-2xl max-w-sm w-full p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
+                <Save size={20} className="text-blue-500" /> 장부 기록
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                비밀번호를 입력하면 장부에 기록됩니다.
+              </p>
+              <input
+                type="password"
+                inputMode="numeric"
+                placeholder="비밀번호"
+                value={panicBuyPasswordInput}
+                onChange={(e) => setPanicBuyPasswordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onConfirmPanicBuySave();
+                }}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 mb-4"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowPanicBuyPasswordModal(false);
+                    setPanicBuyPasswordInput('');
+                  }}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={onConfirmPanicBuySave}
+                  disabled={isSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isSaving ? '저장 중…' : '저장'}
                 </button>
               </div>
             </div>

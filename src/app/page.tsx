@@ -11,6 +11,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  LabelList,
 } from 'recharts';
 import {
   Calculator,
@@ -122,6 +123,12 @@ export default function RealDbTower() {
     investment: boolean;
     principal: boolean;
   }>({ investment: false, principal: false });
+  const [assetChartView, setAssetChartView] = useState<'total' | 'byAsset'>(
+    'total'
+  );
+  const [hiddenAssetSeries, setHiddenAssetSeries] = useState<
+    Record<string, boolean>
+  >({});
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [resetPasswordInput, setResetPasswordInput] = useState('');
   const [showPanicBuyPasswordModal, setShowPanicBuyPasswordModal] =
@@ -276,19 +283,44 @@ export default function RealDbTower() {
         0
       );
       const cashUntilNow = depositUntilNow - spentUntilNow;
+
+      // 종목별 원금/시세 추적
       let stockValUntilNow = 0;
+      const perAsset: Record<
+        string,
+        { principal: number; value: number }
+      > = {};
       Object.keys(NAMES).forEach((k) => {
         if (k === 'cash') return;
-        const qty = recordsUntilNow
-          .filter((r) => r.asset_key === k)
-          .reduce((acc, cur) => acc + Number(cur.quantity), 0);
-        stockValUntilNow += qty * (mPoint[k] || 0);
+        const assetRecords = recordsUntilNow.filter(
+          (r) => r.asset_key === k
+        );
+        const qty = assetRecords.reduce(
+          (acc, cur) => acc + Number(cur.quantity),
+          0
+        );
+        const cost = assetRecords.reduce(
+          (acc, cur) => acc + Number(cur.amount),
+          0
+        );
+        const value = qty * (mPoint[k] || 0);
+        perAsset[k] = { principal: cost, value };
+        stockValUntilNow += value;
       });
-      return {
+
+      const base: any = {
         date,
         principal: depositUntilNow,
         investment: stockValUntilNow + cashUntilNow,
       };
+
+      // chartHistory 에 종목별 데이터도 함께 포함
+      Object.keys(perAsset).forEach((k) => {
+        base[`principal_${k}`] = perAsset[k].principal;
+        base[`value_${k}`] = perAsset[k].value;
+      });
+
+      return base;
     });
 
     // 마지막 시점: 실시간 시세(livePrices)가 있으면 총자산만 현재 시세 기준으로 덮어씀
@@ -633,6 +665,21 @@ export default function RealDbTower() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 6,
     });
+  const renderAssetEndLabel = (props: any, label: string) => {
+    const { x, y, index, value } = props;
+    if (index !== chartHistory.length - 1 || value == null) return null;
+    return (
+      <text
+        x={x + 4}
+        y={y}
+        dy={3}
+        fontSize={9}
+        fill={darkMode ? '#e5e7eb' : '#0f172a'}
+      >
+        {label}
+      </text>
+    );
+  };
   const totalRoi =
     totalInvested > 0 ? (totalAsset / totalInvested - 1) * 100 : 0;
 
@@ -1010,6 +1057,93 @@ export default function RealDbTower() {
           </div>
         </section>
 
+        {/* 현재 보유 수량 / 평단 요약 */}
+        <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm">
+          <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-4 leading-none text-slate-700 dark:text-slate-200">
+            <Layers size={18} />
+            현재 보유 수량 · 평단
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs sm:text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 dark:border-slate-700">
+                  <th className="py-2 pr-4 text-left font-bold text-slate-400 dark:text-slate-500">
+                    종목
+                  </th>
+                  <th className="py-2 px-2 text-right font-bold text-slate-400 dark:text-slate-500">
+                    보유 수량
+                  </th>
+                  <th className="py-2 pl-2 text-right font-bold text-slate-400 dark:text-slate-500">
+                    평단 / 투자금 / 수익률
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.keys(NAMES)
+                  .filter((k) => k !== 'cash')
+                  .map((k, i) => {
+                    const p = portfolio[k];
+                    return (
+                      <tr
+                        key={k}
+                        className="border-b border-slate-50 dark:border-slate-800/80 last:border-b-0"
+                      >
+                        <td className="py-2 pr-4">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="inline-block w-1.5 h-6 rounded-full"
+                              style={{
+                                backgroundColor: COLORS[i % COLORS.length],
+                              }}
+                            />
+                            <span className="text-[11px] sm:text-xs font-black text-slate-800 dark:text-slate-100">
+                              {NAMES[k]}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          <span className="font-bold text-slate-700 dark:text-slate-200">
+                            {k === 'btc'
+                              ? formatDec(p.qty)
+                              : formatNum(p.qty)}
+                          </span>
+                          <span className="ml-1 text-[10px] text-slate-400">
+                            주
+                          </span>
+                        </td>
+                        <td className="py-2 pl-2 text-right">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="font-bold text-slate-700 dark:text-slate-200">
+                              {formatNum(Math.floor(p.avg))}원
+                            </span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              투자금 {formatNum(Math.floor(p.avg * p.qty))}원
+                            </span>
+                            {p.qty > 0 && p.avg > 0 && currentPriceMap && (
+                              <span
+                                className={`text-[10px] font-bold ${
+                                  currentPriceMap[k] / p.avg - 1 >= 0
+                                    ? 'text-blue-500'
+                                    : 'text-rose-500'
+                                }`}
+                              >
+                                현재가 대비{' '}
+                                {(
+                                  (currentPriceMap[k] / p.avg - 1 || 0) * 100
+                                ).toFixed(1)}
+                                %
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         {/* 목표 vs 현재 비중 */}
         <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm">
           <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-6 leading-none text-slate-700 dark:text-slate-200">
@@ -1077,113 +1211,325 @@ export default function RealDbTower() {
         {/* 3. 보유 자산 현황 (DB) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm relative">
-            <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-6 sm:mb-8 leading-none text-slate-700 dark:text-slate-200">
-              <History size={18} />
-              자산 성장 추이 (실제 기록)
-            </h2>
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 leading-none text-slate-700 dark:text-slate-200">
+                <History size={18} />
+                자산 성장 추이 (실제 기록)
+              </h2>
+              <div className="inline-flex rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50/80 dark:bg-slate-800/80 p-1 text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setAssetChartView('total')}
+                  className={`px-3 py-1 rounded-full transition-all ${
+                    assetChartView === 'total'
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'text-slate-500 dark:text-slate-300'
+                  }`}
+                >
+                  총합 보기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssetChartView('byAsset')}
+                  className={`px-3 py-1 rounded-full transition-all ${
+                    assetChartView === 'byAsset'
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'text-slate-500 dark:text-slate-300'
+                  }`}
+                >
+                  종목별로 보기
+                </button>
+              </div>
+            </div>
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartHistory}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke={darkMode ? '#334155' : '#f1f5f9'}
-                  />
-                  <XAxis
-                    dataKey="date"
-                    fontSize={10}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => v.slice(2, 7)}
-                    interval={2}
-                  />
-                  <YAxis hide domain={['auto', 'auto']} />
-                  <Tooltip
-                    formatter={(v: any) => formatNum(v) + '원'}
-                    labelFormatter={(l) => l}
-                    contentStyle={{
-                      backgroundColor: darkMode ? '#020617' : '#ffffff',
-                      border: '1px solid #64748b',
-                      color: darkMode ? '#e5e7eb' : '#0f172a',
-                      fontSize: 10,
-                    }}
-                    labelStyle={{
-                      color: darkMode ? '#e5e7eb' : '#0f172a',
-                      fontWeight: 700,
-                    }}
-                  />
-                  <Legend
-                    content={() => (
-                      <div className="flex flex-wrap gap-4 justify-center mt-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChartLegendHidden((p) => ({
-                              ...p,
-                              investment: !p.investment,
-                            }))
-                          }
-                          className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
-                            chartLegendHidden.investment
-                              ? 'opacity-50'
-                              : 'opacity-100'
-                          } ${darkMode ? 'text-slate-200' : 'text-slate-700'}`}
-                        >
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: '#3b82f6' }}
-                          />
-                          총 자산
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChartLegendHidden((p) => ({
-                              ...p,
-                              principal: !p.principal,
-                            }))
-                          }
-                          className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
-                            chartLegendHidden.principal
-                              ? 'opacity-50'
-                              : 'opacity-100'
-                          } ${darkMode ? 'text-slate-200' : 'text-slate-700'}`}
-                        >
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{
-                              backgroundColor: darkMode
-                                ? '#4ade80'
-                                : '#22c55e',
-                            }}
-                          />
-                          누적 원금
-                        </button>
-                      </div>
+                {assetChartView === 'total' ? (
+                  <LineChart data={chartHistory}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke={darkMode ? '#334155' : '#f1f5f9'}
+                    />
+                    <XAxis
+                      dataKey="date"
+                      fontSize={10}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => v.slice(2, 7)}
+                      interval={2}
+                    />
+                    <YAxis hide domain={['auto', 'auto']} />
+                    <Tooltip
+                      formatter={(v: any) => formatNum(v) + '원'}
+                      labelFormatter={(l) => l}
+                      contentStyle={{
+                        backgroundColor: darkMode ? '#020617' : '#ffffff',
+                        border: '1px solid #64748b',
+                        color: darkMode ? '#e5e7eb' : '#0f172a',
+                        fontSize: 10,
+                      }}
+                      labelStyle={{
+                        color: darkMode ? '#e5e7eb' : '#0f172a',
+                        fontWeight: 700,
+                      }}
+                    />
+                    <Legend
+                      content={() => (
+                        <div className="flex flex-wrap gap-4 justify-center mt-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setChartLegendHidden((p) => ({
+                                ...p,
+                                investment: !p.investment,
+                              }))
+                            }
+                            className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
+                              chartLegendHidden.investment
+                                ? 'opacity-50'
+                                : 'opacity-100'
+                            } ${
+                              darkMode ? 'text-slate-200' : 'text-slate-700'
+                            }`}
+                          >
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: '#3b82f6' }}
+                            />
+                            총 자산
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setChartLegendHidden((p) => ({
+                                ...p,
+                                principal: !p.principal,
+                              }))
+                            }
+                            className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
+                              chartLegendHidden.principal
+                                ? 'opacity-50'
+                                : 'opacity-100'
+                            } ${
+                              darkMode ? 'text-slate-200' : 'text-slate-700'
+                            }`}
+                          >
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{
+                                backgroundColor: darkMode
+                                  ? '#4ade80'
+                                  : '#22c55e',
+                              }}
+                            />
+                            누적 원금
+                          </button>
+                        </div>
+                      )}
+                    />
+                    {!chartLegendHidden.investment && (
+                      <Line
+                        type="monotone"
+                        dataKey="investment"
+                        name="총 자산"
+                        stroke="#3b82f6"
+                        strokeWidth={3}
+                        dot={true}
+                      />
                     )}
-                  />
-                  {!chartLegendHidden.investment && (
-                    <Line
-                      type="monotone"
-                      dataKey="investment"
-                      name="총 자산"
-                      stroke="#3b82f6"
-                      strokeWidth={3}
-                      dot={true}
+                    {!chartLegendHidden.principal && (
+                      <Line
+                        type="monotone"
+                        dataKey="principal"
+                        name="누적 원금"
+                        stroke={darkMode ? '#4ade80' : '#22c55e'}
+                        strokeWidth={2.5}
+                        strokeDasharray="6 4"
+                        dot={{ r: 2, fill: darkMode ? '#4ade80' : '#22c55e' }}
+                      />
+                    )}
+                  </LineChart>
+                ) : (
+                  <LineChart
+                    data={chartHistory}
+                    margin={{ top: 4, right: 60, left: 0, bottom: 4 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke={darkMode ? '#334155' : '#f1f5f9'}
                     />
-                  )}
-                  {!chartLegendHidden.principal && (
-                    <Line
-                      type="monotone"
-                      dataKey="principal"
-                      name="누적 원금"
-                      stroke={darkMode ? '#4ade80' : '#22c55e'}
-                      strokeWidth={2.5}
-                      strokeDasharray="6 4"
-                      dot={{ r: 2, fill: darkMode ? '#4ade80' : '#22c55e' }}
+                    <XAxis
+                      dataKey="date"
+                      fontSize={10}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => v.slice(2, 7)}
+                      interval={2}
                     />
-                  )}
-                </LineChart>
+                    <YAxis hide domain={['auto', 'auto']} />
+                    <Tooltip
+                      formatter={(v: any) => formatNum(v) + '원'}
+                      labelFormatter={(l) => l}
+                      contentStyle={{
+                        backgroundColor: darkMode ? '#020617' : '#ffffff',
+                        border: '1px solid #64748b',
+                        color: darkMode ? '#e5e7eb' : '#0f172a',
+                        fontSize: 10,
+                      }}
+                      labelStyle={{
+                        color: darkMode ? '#e5e7eb' : '#0f172a',
+                        fontWeight: 700,
+                      }}
+                    />
+                    <Legend
+                      verticalAlign="top"
+                      height={52}
+                      content={({ payload }) => {
+                        const valueKeys =
+                          payload
+                            ?.filter((p: any) =>
+                              String(p.dataKey).startsWith('value_')
+                            )
+                            .map((p: any) => String(p.dataKey)) ?? [];
+                        const principalKeys =
+                          payload
+                            ?.filter((p: any) =>
+                              String(p.dataKey).startsWith('principal_')
+                            )
+                            .map((p: any) => String(p.dataKey)) ?? [];
+
+                        const allValuesHidden =
+                          valueKeys.length > 0 &&
+                          valueKeys.every((k) => hiddenAssetSeries[k]);
+                        const allPrincipalsHidden =
+                          principalKeys.length > 0 &&
+                          principalKeys.every((k) => hiddenAssetSeries[k]);
+
+                        return (
+                          <div className="flex flex-col gap-1 mt-1 text-[10px]">
+                            <div className="flex justify-center gap-2 mb-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setHiddenAssetSeries((prev) => {
+                                    const next = { ...prev };
+                                    const nextHidden = !allValuesHidden;
+                                    valueKeys.forEach((k) => {
+                                      next[k] = nextHidden;
+                                    });
+                                    return next;
+                                  })
+                                }
+                                className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                                  allValuesHidden
+                                    ? 'opacity-60 border-slate-300 dark:border-slate-600'
+                                    : 'border-slate-300 dark:border-slate-600'
+                                } ${
+                                  darkMode
+                                    ? 'text-slate-100 bg-slate-800/60'
+                                    : 'text-slate-700 bg-slate-50'
+                                }`}
+                              >
+                                시가 전체
+                                {allValuesHidden ? ' 표시' : ' 숨기기'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setHiddenAssetSeries((prev) => {
+                                    const next = { ...prev };
+                                    const nextHidden = !allPrincipalsHidden;
+                                    principalKeys.forEach((k) => {
+                                      next[k] = nextHidden;
+                                    });
+                                    return next;
+                                  })
+                                }
+                                className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                                  allPrincipalsHidden
+                                    ? 'opacity-60 border-slate-300 dark:border-slate-600'
+                                    : 'border-slate-300 dark:border-slate-600'
+                                } ${
+                                  darkMode
+                                    ? 'text-slate-100 bg-slate-800/60'
+                                    : 'text-slate-700 bg-slate-50'
+                                }`}
+                              >
+                                원금 전체
+                                {allPrincipalsHidden ? ' 표시' : ' 숨기기'}
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 justify-center">
+                              {payload?.map((entry: any) => {
+                                const key = entry.dataKey as string;
+                                const isHidden = !!hiddenAssetSeries[key];
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() =>
+                                      setHiddenAssetSeries((prev) => ({
+                                        ...prev,
+                                        [key]: !prev[key],
+                                      }))
+                                    }
+                                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border transition-all ${
+                                      isHidden
+                                        ? 'opacity-40 border-transparent'
+                                        : 'opacity-100 border-slate-200 dark:border-slate-600'
+                                    } ${
+                                      darkMode
+                                        ? 'text-slate-200'
+                                        : 'text-slate-700'
+                                    }`}
+                                  >
+                                    <span
+                                      className="w-2 h-2 rounded-full"
+                                      style={{ backgroundColor: entry.color }}
+                                    />
+                                    <span>{entry.value}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    {Object.keys(NAMES)
+                      .filter((k) => k !== 'cash')
+                      .map((k, i) => (
+                        <React.Fragment key={k}>
+                          <Line
+                            type="monotone"
+                            dataKey={`value_${k}`}
+                            name={`${NAMES[k]} 시가`}
+                            stroke={COLORS[i % COLORS.length]}
+                            strokeWidth={2.2}
+                            dot={false}
+                            hide={!!hiddenAssetSeries[`value_${k}`]}
+                          >
+                            <LabelList
+                              content={(props) =>
+                                renderAssetEndLabel(props, NAMES[k])
+                              }
+                            />
+                          </Line>
+                          <Line
+                            type="monotone"
+                            dataKey={`principal_${k}`}
+                            name={`${NAMES[k]} 원금`}
+                            stroke={darkMode ? '#64748b' : '#cbd5f5'}
+                            strokeDasharray="4 2"
+                            strokeWidth={1.6}
+                            dot={false}
+                            hide={!!hiddenAssetSeries[`principal_${k}`]}
+                          />
+                        </React.Fragment>
+                      ))}
+                  </LineChart>
+                )}
               </ResponsiveContainer>
             </div>
           </div>

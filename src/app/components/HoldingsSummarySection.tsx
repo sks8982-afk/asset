@@ -36,7 +36,7 @@ export function HoldingsSummarySection({
                   보유 수량
                 </th>
                 <th className="py-2 pl-2 text-right font-bold text-slate-400 dark:text-slate-500">
-                  평단 / 투자금 / 수익률
+                  현재시세 / 평단 / 투자금 / 수익률
                 </th>
               </tr>
             </thead>
@@ -75,8 +75,11 @@ export function HoldingsSummarySection({
                       </td>
                       <td className="py-2 pl-2 text-right">
                         <div className="flex flex-col items-end gap-0.5">
-                          <span className="font-bold text-slate-700 dark:text-slate-200">
-                            {formatNum(Math.floor(p.avg))}원
+                          <span className="font-bold text-slate-900 dark:text-slate-100">
+                            현재시세 {formatNum(Math.floor(currentPriceMap[k] ?? 0))}원
+                          </span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                            평단 {formatNum(Math.floor(p.avg))}원
                           </span>
                           <span className="text-[10px] text-slate-500 dark:text-slate-400">
                             투자금 {formatNum(Math.floor(p.avg * p.qty))}원
@@ -89,7 +92,7 @@ export function HoldingsSummarySection({
                                   : 'text-rose-500'
                               }`}
                             >
-                              현재가 대비{' '}
+                              수익률{' '}
                               {(
                                 (currentPriceMap[k] / p.avg - 1 || 0) * 100
                               ).toFixed(1)}

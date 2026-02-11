@@ -1,39 +1,21 @@
 'use client';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LabelList,
-} from 'recharts';
-import {
-  Calculator,
-  Wallet,
-  RefreshCcw,
-  ArrowDownCircle,
-  Save,
-  AlertTriangle,
-  Layers,
-  Trash2,
-  Edit3,
-  History,
-  Download,
-  Moon,
-  Sun,
-  Settings,
-  Target,
-  Banknote,
-  ChevronDown,
-  X,
-} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { HeaderSection } from './components/HeaderSection';
+import { HoldingsSummarySection } from './components/HoldingsSummarySection';
+import { GoalSection } from './components/GoalSection';
+import { MonthlyOverviewSection } from './components/MonthlyOverviewSection';
+import { BuyGuideSection } from './components/BuyGuideSection';
+import { WeightChartSection } from './components/WeightChartSection';
+import { AssetGrowthSection } from './components/AssetGrowthSection';
+import { HoldingsDetailSection } from './components/HoldingsDetailSection';
+import { InvestmentHistorySection } from './components/InvestmentHistorySection';
+import { DepositsHistorySection } from './components/DepositsHistorySection';
+import { PanicBuyBanner } from './components/PanicBuyBanner';
+import { PasswordConfirmModal } from './components/PasswordConfirmModal';
+import { SettingsModal } from './components/SettingsModal';
+import { GoalToastBar } from './components/GoalToastBar';
+import { LoadingScreen } from './components/LoadingScreen';
 
 const STORAGE_KEYS = {
   dark: 'asset-tracker-dark',
@@ -78,7 +60,7 @@ export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useState(() =>
     typeof window === 'undefined'
       ? 1300000
-      : Number(localStorage.getItem(STORAGE_KEYS.budget)) || 1300000
+      : Number(localStorage.getItem(STORAGE_KEYS.budget)) || 1300000,
   );
   const [marketData, setMarketData] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<any | null>(null);
@@ -90,13 +72,13 @@ export default function RealDbTower() {
   const [isPanicBuyMode, setIsPanicBuyMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [currentMonth, setCurrentMonth] = useState<number>(
-    new Date().getMonth() + 1
+    new Date().getMonth() + 1,
   );
   const [manualEdits, setManualEdits] = useState<Record<string, number>>({});
   const [darkMode, setDarkMode] = useState(
     () =>
       typeof window !== 'undefined' &&
-      localStorage.getItem(STORAGE_KEYS.dark) === 'true'
+      localStorage.getItem(STORAGE_KEYS.dark) === 'true',
   );
   const [customRatios, setCustomRatios] = useState<Record<
     string,
@@ -124,7 +106,7 @@ export default function RealDbTower() {
     principal: boolean;
   }>({ investment: false, principal: false });
   const [assetChartView, setAssetChartView] = useState<'total' | 'byAsset'>(
-    'total'
+    'total',
   );
   const [hiddenAssetSeries, setHiddenAssetSeries] = useState<
     Record<string, boolean>
@@ -213,7 +195,7 @@ export default function RealDbTower() {
         localStorage.setItem(STORAGE_KEYS.ratios, JSON.stringify(ratios));
       else localStorage.removeItem(STORAGE_KEYS.ratios);
     },
-    []
+    [],
   );
 
   // 1. 내 자산 현황 분석 (DB 기준)
@@ -225,18 +207,18 @@ export default function RealDbTower() {
 
     const totalDeposit = dbHistory.budgets.reduce(
       (acc, cur) => acc + Number(cur.amount),
-      0
+      0,
     );
     const totalSpent = dbHistory.records.reduce(
       (acc, cur) => acc + Number(cur.amount),
-      0
+      0,
     );
     const currentCashBalance = totalDeposit - totalSpent;
 
     const portfolio: any = {};
     Object.keys(NAMES).forEach(
       (k) =>
-        (portfolio[k] = { qty: 0, cost: 0, avg: 0, val: 0, roi: 0, weight: 0 })
+        (portfolio[k] = { qty: 0, cost: 0, avg: 0, val: 0, roi: 0, weight: 0 }),
     );
 
     dbHistory.records.forEach((r) => {
@@ -276,32 +258,27 @@ export default function RealDbTower() {
         .filter((b) => b.month_date.substring(0, 7) <= date)
         .reduce((acc, cur) => acc + Number(cur.amount), 0);
       const recordsUntilNow = dbHistory.records.filter(
-        (r) => r.date.substring(0, 7) <= date
+        (r) => r.date.substring(0, 7) <= date,
       );
       const spentUntilNow = recordsUntilNow.reduce(
         (acc, cur) => acc + Number(cur.amount),
-        0
+        0,
       );
       const cashUntilNow = depositUntilNow - spentUntilNow;
 
       // 종목별 원금/시세 추적
       let stockValUntilNow = 0;
-      const perAsset: Record<
-        string,
-        { principal: number; value: number }
-      > = {};
+      const perAsset: Record<string, { principal: number; value: number }> = {};
       Object.keys(NAMES).forEach((k) => {
         if (k === 'cash') return;
-        const assetRecords = recordsUntilNow.filter(
-          (r) => r.asset_key === k
-        );
+        const assetRecords = recordsUntilNow.filter((r) => r.asset_key === k);
         const qty = assetRecords.reduce(
           (acc, cur) => acc + Number(cur.quantity),
-          0
+          0,
         );
         const cost = assetRecords.reduce(
           (acc, cur) => acc + Number(cur.amount),
-          0
+          0,
         );
         const value = qty * (mPoint[k] || 0);
         perAsset[k] = { principal: cost, value };
@@ -338,7 +315,7 @@ export default function RealDbTower() {
       (k) =>
         k !== 'cash' &&
         k !== 'btc' &&
-        (currentPriceMap[k] / prevPriceMap[k] - 1) * 100 <= -10
+        (currentPriceMap[k] / prevPriceMap[k] - 1) * 100 <= -10,
     );
     const currentExchangeRate = currentPriceMap.ex ?? 1350;
 
@@ -443,8 +420,8 @@ export default function RealDbTower() {
       const monthlySpendContribution = isPanicBuyMode
         ? spent
         : manualEdits[k] !== undefined
-        ? spent
-        : actualBaseSpent;
+          ? spent
+          : actualBaseSpent;
       totalMonthlySpend += monthlySpendContribution;
       totalExpectedSpend += spent;
 
@@ -504,14 +481,14 @@ export default function RealDbTower() {
     // 중복 체크
     const today = new Date();
     const currentYearMonth = `${today.getFullYear()}-${String(
-      today.getMonth() + 1
+      today.getMonth() + 1,
     ).padStart(2, '0')}`;
     const existingBudget = dbHistory.budgets.find((b) =>
-      b.month_date.startsWith(currentYearMonth)
+      b.month_date.startsWith(currentYearMonth),
     );
 
     let confirmMsg = `[${currentMonth}월 장부 기록]\n\n이달의 잔여 현금: ${formatNum(
-      buyPlan.thisMonthResidue
+      buyPlan.thisMonthResidue,
     )}원\n\n이대로 저장하시겠습니까?`;
     if (existingBudget)
       confirmMsg = `⚠️ 이미 ${currentMonth}월 기록이 있습니다.\n추가 매수로 처리하여 합산하시겠습니까?`;
@@ -595,7 +572,7 @@ export default function RealDbTower() {
       rows.push(
         `매수,${r.date},${NAMES[r.asset_key] ?? r.asset_key},${r.price},${
           r.quantity
-        },${r.amount},${r.is_panic_buy ? '추매' : ''}`
+        },${r.amount},${r.is_panic_buy ? '추매' : ''}`,
       );
     });
     rows.push('');
@@ -615,7 +592,7 @@ export default function RealDbTower() {
           myAccount.totalInvested > 0
             ? (myAccount.totalAsset / myAccount.totalInvested - 1) * 100
             : 0
-        }`
+        }`,
       );
     }
     const blob = new Blob(['\uFEFF' + rows.join('\n')], {
@@ -638,15 +615,7 @@ export default function RealDbTower() {
     return list;
   }, [dbHistory.records, historyFilterMonth, historyFilterAsset]);
 
-  if (loading || !myAccount || !buyPlan)
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--background)] font-black text-slate-400">
-        <RefreshCcw className="animate-spin mb-4" size={48} />
-        <p className="tracking-widest uppercase italic text-center">
-          장부 불러오는 중...
-        </p>
-      </div>
-    );
+  if (loading || !myAccount || !buyPlan) return <LoadingScreen />;
 
   const {
     currentCashBalance,
@@ -665,1299 +634,178 @@ export default function RealDbTower() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 6,
     });
-  const renderAssetEndLabel = (props: any, label: string) => {
-    const { x, y, index, value } = props;
-    if (index !== chartHistory.length - 1 || value == null) return null;
-    return (
-      <text
-        x={x + 4}
-        y={y}
-        dy={3}
-        fontSize={9}
-        fill={darkMode ? '#e5e7eb' : '#0f172a'}
-      >
-        {label}
-      </text>
-    );
-  };
   const totalRoi =
     totalInvested > 0 ? (totalAsset / totalInvested - 1) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-[var(--background)] p-4 sm:p-8 text-[var(--foreground)] font-sans transition-colors">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {goalToast && (
-          <div className="bg-emerald-600 dark:bg-emerald-700 text-white p-4 rounded-2xl shadow-xl flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Target size={24} />
-              <p className="font-black">
-                {goalToast === 'roi' && `🎉 목표 수익률 ${goalRoi}% 도달!`}
-                {goalToast === 'asset' &&
-                  `🎉 목표 자산 ${formatNum(goalAsset)}원 도달!`}
-              </p>
-            </div>
-            <button
-              onClick={() => setGoalToast(null)}
-              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg text-sm font-bold"
-            >
-              닫기
-            </button>
-          </div>
-        )}
+    <div className="min-h-screen bg-[var(--background)] p-4 sm:p-8 text-[var(--foreground)] font-sans transition-colors flex justify-center">
+      <div className="w-full max-w-6xl space-y-6">
+        <GoalToastBar
+          goalToast={goalToast}
+          goalRoi={goalRoi}
+          goalAsset={goalAsset}
+          formatNum={formatNum}
+          onClose={() => setGoalToast(null)}
+        />
         {isCrash && !isPanicBuyMode && (
-          <div className="bg-rose-600 text-white p-4 rounded-2xl shadow-xl animate-bounce flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <AlertTriangle size={24} />
-              <p className="font-black">
-                ⚠️ 하락장 감지! 보유 현금을 투입할 때입니다.
-              </p>
-            </div>
-            <button
-              onClick={() => setIsPanicBuyMode(true)}
-              className="bg-white text-rose-600 px-4 py-2 rounded-xl font-black text-sm"
-            >
-              추매 모드 ON
-            </button>
-          </div>
+          <PanicBuyBanner onEnterPanicMode={() => setIsPanicBuyMode(true)} />
         )}
 
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
-              <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest italic">
-                Real-Time DB Ledger
-              </span>
-            </div>
-            <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 leading-none tracking-tighter">
-              실전{' '}
-              <span className="text-blue-600 dark:text-blue-400">
-                투자 장부
-              </span>
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-            <button
-              onClick={() => setDarkMode((d) => !d)}
-              className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-              title={darkMode ? '라이트 모드' : '다크 모드'}
-            >
-              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <button
-              onClick={handleExportCSV}
-              className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
-              title="CSV 내보내기"
-            >
-              <Download size={18} />
-              <span className="text-xs font-bold hidden sm:inline">
-                내보내기
-              </span>
-            </button>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-              title="설정"
-            >
-              <Settings size={20} />
-            </button>
-            <button
-              onClick={loadAllData}
-              disabled={isRefreshingPrice}
-              className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-2 disabled:opacity-60"
-              title="시세 새로고침"
-            >
-              <RefreshCcw
-                size={18}
-                className={isRefreshingPrice ? 'animate-spin' : ''}
-              />
-              <span className="text-xs font-bold hidden sm:inline">
-                시세 새로고침
-              </span>
-            </button>
-            <button
-              onClick={() => setShowResetPasswordModal(true)}
-              className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-500 hover:border-rose-200 transition-all flex flex-col items-center justify-center gap-1"
-            >
-              <Trash2 size={18} />
-              <span className="text-[9px] font-black uppercase">DB 초기화</span>
-            </button>
-            <div className="bg-slate-900 dark:bg-slate-800 px-6 py-4 rounded-3xl text-white shadow-2xl flex gap-6 border-b-4 border-blue-600">
-              <div className="text-right border-r border-white/10 pr-6">
-                <p className="text-[10px] font-bold opacity-50 uppercase mb-1">
-                  순자산 총액
-                </p>
-                <p className="text-2xl font-black italic">
-                  {formatNum(totalAsset)}원
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-bold opacity-50 uppercase mb-1">
-                  실현 수익률
-                </p>
-                <p
-                  className={`text-2xl font-black ${
-                    totalRoi >= 0 ? 'text-blue-400' : 'text-rose-400'
-                  }`}
-                >
-                  {totalRoi > 0 ? '+' : ''}
-                  {totalRoi.toFixed(1)}%
-                </p>
-              </div>
-            </div>
-          </div>
+        <header className="flex flex-col justify-between items-start gap-4">
+          <HeaderSection
+            darkMode={darkMode}
+            onToggleDarkMode={() => setDarkMode((d) => !d)}
+            onExportCSV={handleExportCSV}
+            onOpenSettings={() => setShowSettings(true)}
+            onRefreshPrices={loadAllData}
+            isRefreshingPrice={isRefreshingPrice}
+            onOpenResetDb={() => setShowResetPasswordModal(true)}
+            totalInvested={totalInvested}
+            totalAsset={totalAsset}
+            totalRoi={totalRoi}
+          />
         </header>
 
         {/* 목표 설정 */}
-        <div className="flex flex-wrap items-center gap-4 p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600">
-          <span className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-2">
-            <Target size={14} /> 목표
-          </span>
-          <label className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              수익률
-            </span>
-            <input
-              type="number"
-              value={goalRoi}
-              onChange={(e) => setGoalRoi(Number(e.target.value) || 0)}
-              onBlur={() =>
-                localStorage.setItem(STORAGE_KEYS.goalRoi, String(goalRoi))
-              }
-              className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold text-slate-900 dark:text-slate-100"
-            />
-            <span className="text-xs text-slate-500">%</span>
-          </label>
-          <label className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              자산
-            </span>
-            <input
-              type="text"
-              value={goalAsset.toLocaleString()}
-              onChange={(e) =>
-                setGoalAsset(Number(e.target.value.replace(/[^0-9]/g, '')) || 0)
-              }
-              onBlur={() =>
-                localStorage.setItem(STORAGE_KEYS.goalAsset, String(goalAsset))
-              }
-              className="w-32 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold text-slate-900 dark:text-slate-100"
-            />
-            <span className="text-xs text-slate-500">원</span>
-          </label>
-        </div>
+        <GoalSection
+          goalRoi={goalRoi}
+          goalAsset={goalAsset}
+          storageKeys={{
+            goalRoi: STORAGE_KEYS.goalRoi,
+            goalAsset: STORAGE_KEYS.goalAsset,
+          }}
+          setGoalRoi={setGoalRoi}
+          setGoalAsset={setGoalAsset}
+        />
 
-        {/* 1. 입력 & 현황판 */}
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 bg-white dark:bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-200 dark:border-slate-600 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-blue-600 rounded-3xl text-white shadow-lg">
-                <Wallet size={24} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">
-                  {dbHistory.budgets.some((b) =>
-                    b.month_date.startsWith(
-                      new Date().toISOString().slice(0, 7)
-                    )
-                  )
-                    ? '이번 달 추가 입금액'
-                    : '이번 달 투자 원금'}
-                </p>
-                <input
-                  type="text"
-                  value={inputBudget.toLocaleString()}
-                  onChange={(e) =>
-                    setInputBudget(
-                      Number(e.target.value.replace(/[^0-9]/g, ''))
-                    )
-                  }
-                  className="bg-transparent border-none p-0 font-black text-2xl text-blue-600 dark:text-blue-400 focus:ring-0 w-40 outline-none"
-                />
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                  <span title="적용 환율">
-                    환율 1USD = {formatNum(currentExchangeRate)}원
-                  </span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">
-                    이번 달 예상 지출: {formatNum(totalExpectedSpend)}원
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">
-                현재 내 통장 잔고
-              </p>
-              <p
-                className={`text-xl font-black flex items-center gap-1 justify-end ${
-                  currentCashBalance < 0
-                    ? 'text-rose-500'
-                    : 'text-slate-700 dark:text-slate-200'
-                }`}
-              >
-                {formatNum(currentCashBalance)}원
-              </p>
-            </div>
-          </div>
+        <MonthlyOverviewSection
+          dbHistoryBudgets={dbHistory.budgets}
+          inputBudget={inputBudget}
+          setInputBudget={setInputBudget}
+          currentExchangeRate={currentExchangeRate}
+          totalExpectedSpend={totalExpectedSpend}
+          currentCashBalance={currentCashBalance}
+          isPanicBuyMode={isPanicBuyMode}
+          setIsPanicBuyMode={setIsPanicBuyMode}
+          formatNum={formatNum}
+        />
 
-          <button
-            onClick={() => setIsPanicBuyMode(!isPanicBuyMode)}
-            className={`flex-1 p-6 rounded-[2.5rem] border-2 transition-all flex items-center justify-center gap-4 group ${
-              isPanicBuyMode
-                ? 'bg-rose-600 border-rose-600 text-white shadow-2xl scale-105'
-                : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-600 text-slate-400 hover:border-rose-300'
-            }`}
-          >
-            <ArrowDownCircle
-              className={isPanicBuyMode ? 'animate-bounce' : ''}
-              size={32}
-            />
-            <div className="text-left">
-              <p className="text-xs font-black uppercase tracking-tighter opacity-70 leading-none mb-1">
-                Smart Panic Buying
-              </p>
-              <p className="text-xl font-black">
-                {isPanicBuyMode ? '비상금 99% 투입 중' : '추매 기회 대기'}
-              </p>
-            </div>
-          </button>
-        </div>
-
-        {/* 2. 쇼핑 리스트 */}
-        <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-xl relative overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
-            <div className="flex items-center gap-3">
-              <Calculator
-                className="text-blue-600 dark:text-blue-400"
-                size={24}
-              />
-              <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100">
-                {currentMonth}월 매수 가이드 (
-                {isPanicBuyMode ? '🔥풀매수' : '🟢정기'})
-              </h2>
-              <span className="text-[10px] text-slate-400 font-normal ml-2">
-                *수량을 클릭해 수정 가능
-              </span>
-            </div>
-            <button
-              onClick={() => setShowPanicBuyPasswordModal(true)}
-              disabled={isSaving}
-              className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-sm flex items-center gap-2 hover:bg-blue-700 transition-all disabled:opacity-50 shadow-lg hover:shadow-blue-500/30"
-            >
-              {isSaving ? (
-                <RefreshCcw className="animate-spin" size={18} />
-              ) : (
-                <Save size={18} />
-              )}
-              {dbHistory.budgets.some((b) =>
-                b.month_date.startsWith(new Date().toISOString().slice(0, 7))
-              )
-                ? '추가 매수 기록'
-                : '장부에 기록하기'}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 relative z-10">
-            {Object.keys(guide).map((k) => (
-              <div
-                key={k}
-                className={`p-4 sm:p-6 rounded-[2rem] border transition-all ${
-                  isPanicBuyMode && guide[k].drop <= -10
-                    ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-700 ring-2 ring-rose-300 dark:ring-rose-600'
-                    : 'bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-600'
-                }`}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase leading-none">
-                    {NAMES[k]}
-                  </p>
-                  <span
-                    className={`text-[10px] font-bold ${
-                      guide[k].drop < 0
-                        ? 'text-rose-500'
-                        : 'text-emerald-500 dark:text-emerald-400'
-                    }`}
-                  >
-                    {Math.abs(guide[k].drop).toFixed(1)}%{' '}
-                    {guide[k].drop < 0 ? '▼ 전월비' : '▲ 전월비'}
-                  </span>
-                </div>
-
-                {/* 🔴 수량 표시 (수정 가능 + 분리 표기) */}
-                <div className="mb-2 relative group">
-                  <div className="flex items-baseline gap-1">
-                    <input
-                      type="number"
-                      step={k === 'btc' ? '0.000001' : '1'}
-                      value={Number.isFinite(guide[k].qty) ? guide[k].qty : 0}
-                      onChange={(e) =>
-                        setManualEdits({
-                          ...manualEdits,
-                          [k]: Number(e.target.value),
-                        })
-                      }
-                      className="bg-transparent border-b border-transparent group-hover:border-slate-300 dark:group-hover:border-slate-500 focus:border-blue-500 w-24 text-4xl font-black text-slate-900 dark:text-slate-100 p-0 outline-none transition-all"
-                    />
-                    <span className="text-sm font-bold text-slate-300 dark:text-slate-500">
-                      주
-                    </span>
-                    <Edit3
-                      size={12}
-                      className="text-slate-300 opacity-0 group-hover:opacity-100"
-                    />
-                  </div>
-                  {isPanicBuyMode && guide[k].extraQty > 0 && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <span className="text-xs font-bold text-slate-400">
-                        기본 {formatNum(guide[k].baseQty)}
-                      </span>
-                      <span className="text-xs font-black text-rose-500 animate-pulse">
-                        + 추가 {formatNum(guide[k].extraQty)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-4 leading-tight">
-                  예상 체결가: {formatNum(guide[k].price)}원<br />
-                  매수액: {formatNum(guide[k].spent)}원
-                </p>
-              </div>
-            ))}
-            {/* 이달의 남은 현금 */}
-            <div className="bg-slate-900 dark:bg-slate-700 p-4 sm:p-6 rounded-[2.5rem] text-white flex flex-col justify-center shadow-xl">
-              <p className="text-[10px] font-bold text-blue-400 uppercase mb-2 leading-none">
-                이달의 잔여 현금 (CMA)
-              </p>
-              <p className="text-2xl font-black leading-none">
-                {formatNum(thisMonthResidue)}원
-              </p>
-              <div className="mt-3 pt-3 border-t border-white/10">
-                {isPanicBuyMode ? (
-                  <>
-                    <p className="text-[10px] opacity-60">
-                      이번달 입금액 + 통장잔고 - 총 매수액
-                    </p>
-                    <p className="text-[10px] opacity-60 text-emerald-400">
-                      (비상금까지 포함해 99% 투입 기준)
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[10px] opacity-60">
-                      이번달 입금액 - 주식매수액
-                    </p>
-                    <p className="text-[10px] opacity-60 text-emerald-400">
-                      (하락장 비상금 사용분 제외)
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
+        <BuyGuideSection
+          currentMonth={currentMonth}
+          isPanicBuyMode={isPanicBuyMode}
+          onSaveClick={() => setShowPanicBuyPasswordModal(true)}
+          isSaving={isSaving}
+          dbHistoryBudgets={dbHistory.budgets}
+          guide={guide}
+          names={NAMES}
+          manualEdits={manualEdits}
+          setManualEdits={setManualEdits}
+          thisMonthResidue={thisMonthResidue}
+          formatNum={formatNum}
+        />
 
         {/* 현재 보유 수량 / 평단 요약 */}
-        <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm">
-          <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-4 leading-none text-slate-700 dark:text-slate-200">
-            <Layers size={18} />
-            현재 보유 수량 · 평단
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs sm:text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-700">
-                  <th className="py-2 pr-4 text-left font-bold text-slate-400 dark:text-slate-500">
-                    종목
-                  </th>
-                  <th className="py-2 px-2 text-right font-bold text-slate-400 dark:text-slate-500">
-                    보유 수량
-                  </th>
-                  <th className="py-2 pl-2 text-right font-bold text-slate-400 dark:text-slate-500">
-                    평단 / 투자금 / 수익률
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.keys(NAMES)
-                  .filter((k) => k !== 'cash')
-                  .map((k, i) => {
-                    const p = portfolio[k];
-                    return (
-                      <tr
-                        key={k}
-                        className="border-b border-slate-50 dark:border-slate-800/80 last:border-b-0"
-                      >
-                        <td className="py-2 pr-4">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="inline-block w-1.5 h-6 rounded-full"
-                              style={{
-                                backgroundColor: COLORS[i % COLORS.length],
-                              }}
-                            />
-                            <span className="text-[11px] sm:text-xs font-black text-slate-800 dark:text-slate-100">
-                              {NAMES[k]}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-2 px-2 text-right">
-                          <span className="font-bold text-slate-700 dark:text-slate-200">
-                            {k === 'btc'
-                              ? formatDec(p.qty)
-                              : formatNum(p.qty)}
-                          </span>
-                          <span className="ml-1 text-[10px] text-slate-400">
-                            주
-                          </span>
-                        </td>
-                        <td className="py-2 pl-2 text-right">
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="font-bold text-slate-700 dark:text-slate-200">
-                              {formatNum(Math.floor(p.avg))}원
-                            </span>
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                              투자금 {formatNum(Math.floor(p.avg * p.qty))}원
-                            </span>
-                            {p.qty > 0 && p.avg > 0 && currentPriceMap && (
-                              <span
-                                className={`text-[10px] font-bold ${
-                                  currentPriceMap[k] / p.avg - 1 >= 0
-                                    ? 'text-blue-500'
-                                    : 'text-rose-500'
-                                }`}
-                              >
-                                현재가 대비{' '}
-                                {(
-                                  (currentPriceMap[k] / p.avg - 1 || 0) * 100
-                                ).toFixed(1)}
-                                %
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <HoldingsSummarySection
+          portfolio={portfolio}
+          names={NAMES}
+          colors={COLORS}
+          formatNum={formatNum}
+          formatDec={formatDec}
+          currentPriceMap={currentPriceMap}
+        />
 
-        {/* 목표 vs 현재 비중 */}
-        <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm">
-          <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-6 leading-none text-slate-700 dark:text-slate-200">
-            <Layers size={18} />
-            목표 vs 현재 비중 (%)
-          </h2>
-          <div className="h-[280px] w-full overflow-x-auto">
-            <ResponsiveContainer width="100%" height="100%" minWidth={400}>
-              <BarChart
-                data={weightChartData}
-                layout="vertical"
-                margin={{ top: 4, right: 20, left: 70, bottom: 4 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#334155"
-                  opacity={0.3}
-                />
-                <XAxis
-                  type="number"
-                  domain={[0, 100]}
-                  unit="%"
-                  tick={{ fontSize: 10 }}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={65}
-                  tick={{ fontSize: 10 }}
-                />
-                <Tooltip
-                  formatter={(v: number | undefined) =>
-                    v != null ? v + '%' : ''
-                  }
-                  labelFormatter={(l) => l}
-                  contentStyle={{
-                    backgroundColor: darkMode ? '#020617' : '#ffffff',
-                    border: '1px solid #64748b',
-                    color: darkMode ? '#e5e7eb' : '#0f172a',
-                    fontSize: 10,
-                  }}
-                  labelStyle={{
-                    color: darkMode ? '#e5e7eb' : '#0f172a',
-                    fontWeight: 700,
-                  }}
-                />
-                <Legend />
-                <Bar
-                  dataKey="목표비중"
-                  fill="#94a3b8"
-                  name="목표"
-                  radius={[0, 4, 4, 0]}
-                />
-                <Bar
-                  dataKey="현재비중"
-                  fill="#3b82f6"
-                  name="현재"
-                  radius={[0, 4, 4, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
+        <WeightChartSection
+          weightChartData={weightChartData}
+          darkMode={darkMode}
+        />
 
         {/* 3. 보유 자산 현황 (DB) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm relative">
-            <div className="flex items-center justify-between mb-4 sm:mb-6">
-              <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 leading-none text-slate-700 dark:text-slate-200">
-                <History size={18} />
-                자산 성장 추이 (실제 기록)
-              </h2>
-              <div className="inline-flex rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50/80 dark:bg-slate-800/80 p-1 text-[10px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => setAssetChartView('total')}
-                  className={`px-3 py-1 rounded-full transition-all ${
-                    assetChartView === 'total'
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'text-slate-500 dark:text-slate-300'
-                  }`}
-                >
-                  총합 보기
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAssetChartView('byAsset')}
-                  className={`px-3 py-1 rounded-full transition-all ${
-                    assetChartView === 'byAsset'
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'text-slate-500 dark:text-slate-300'
-                  }`}
-                >
-                  종목별로 보기
-                </button>
-              </div>
-            </div>
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                {assetChartView === 'total' ? (
-                  <LineChart data={chartHistory}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke={darkMode ? '#334155' : '#f1f5f9'}
-                    />
-                    <XAxis
-                      dataKey="date"
-                      fontSize={10}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(v) => v.slice(2, 7)}
-                      interval={2}
-                    />
-                    <YAxis hide domain={['auto', 'auto']} />
-                    <Tooltip
-                      formatter={(v: any) => formatNum(v) + '원'}
-                      labelFormatter={(l) => l}
-                      contentStyle={{
-                        backgroundColor: darkMode ? '#020617' : '#ffffff',
-                        border: '1px solid #64748b',
-                        color: darkMode ? '#e5e7eb' : '#0f172a',
-                        fontSize: 10,
-                      }}
-                      labelStyle={{
-                        color: darkMode ? '#e5e7eb' : '#0f172a',
-                        fontWeight: 700,
-                      }}
-                    />
-                    <Legend
-                      content={() => (
-                        <div className="flex flex-wrap gap-4 justify-center mt-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setChartLegendHidden((p) => ({
-                                ...p,
-                                investment: !p.investment,
-                              }))
-                            }
-                            className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
-                              chartLegendHidden.investment
-                                ? 'opacity-50'
-                                : 'opacity-100'
-                            } ${
-                              darkMode ? 'text-slate-200' : 'text-slate-700'
-                            }`}
-                          >
-                            <span
-                              className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: '#3b82f6' }}
-                            />
-                            총 자산
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setChartLegendHidden((p) => ({
-                                ...p,
-                                principal: !p.principal,
-                              }))
-                            }
-                            className={`flex items-center gap-1.5 text-[10px] font-bold cursor-pointer transition-opacity ${
-                              chartLegendHidden.principal
-                                ? 'opacity-50'
-                                : 'opacity-100'
-                            } ${
-                              darkMode ? 'text-slate-200' : 'text-slate-700'
-                            }`}
-                          >
-                            <span
-                              className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{
-                                backgroundColor: darkMode
-                                  ? '#4ade80'
-                                  : '#22c55e',
-                              }}
-                            />
-                            누적 원금
-                          </button>
-                        </div>
-                      )}
-                    />
-                    {!chartLegendHidden.investment && (
-                      <Line
-                        type="monotone"
-                        dataKey="investment"
-                        name="총 자산"
-                        stroke="#3b82f6"
-                        strokeWidth={3}
-                        dot={true}
-                      />
-                    )}
-                    {!chartLegendHidden.principal && (
-                      <Line
-                        type="monotone"
-                        dataKey="principal"
-                        name="누적 원금"
-                        stroke={darkMode ? '#4ade80' : '#22c55e'}
-                        strokeWidth={2.5}
-                        strokeDasharray="6 4"
-                        dot={{ r: 2, fill: darkMode ? '#4ade80' : '#22c55e' }}
-                      />
-                    )}
-                  </LineChart>
-                ) : (
-                  <LineChart
-                    data={chartHistory}
-                    margin={{ top: 4, right: 60, left: 0, bottom: 4 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke={darkMode ? '#334155' : '#f1f5f9'}
-                    />
-                    <XAxis
-                      dataKey="date"
-                      fontSize={10}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(v) => v.slice(2, 7)}
-                      interval={2}
-                    />
-                    <YAxis hide domain={['auto', 'auto']} />
-                    <Tooltip
-                      formatter={(v: any) => formatNum(v) + '원'}
-                      labelFormatter={(l) => l}
-                      contentStyle={{
-                        backgroundColor: darkMode ? '#020617' : '#ffffff',
-                        border: '1px solid #64748b',
-                        color: darkMode ? '#e5e7eb' : '#0f172a',
-                        fontSize: 10,
-                      }}
-                      labelStyle={{
-                        color: darkMode ? '#e5e7eb' : '#0f172a',
-                        fontWeight: 700,
-                      }}
-                    />
-                    <Legend
-                      verticalAlign="top"
-                      height={52}
-                      content={({ payload }) => {
-                        const valueKeys =
-                          payload
-                            ?.filter((p: any) =>
-                              String(p.dataKey).startsWith('value_')
-                            )
-                            .map((p: any) => String(p.dataKey)) ?? [];
-                        const principalKeys =
-                          payload
-                            ?.filter((p: any) =>
-                              String(p.dataKey).startsWith('principal_')
-                            )
-                            .map((p: any) => String(p.dataKey)) ?? [];
-
-                        const allValuesHidden =
-                          valueKeys.length > 0 &&
-                          valueKeys.every((k) => hiddenAssetSeries[k]);
-                        const allPrincipalsHidden =
-                          principalKeys.length > 0 &&
-                          principalKeys.every((k) => hiddenAssetSeries[k]);
-
-                        return (
-                          <div className="flex flex-col gap-1 mt-1 text-[10px]">
-                            <div className="flex justify-center gap-2 mb-1">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setHiddenAssetSeries((prev) => {
-                                    const next = { ...prev };
-                                    const nextHidden = !allValuesHidden;
-                                    valueKeys.forEach((k) => {
-                                      next[k] = nextHidden;
-                                    });
-                                    return next;
-                                  })
-                                }
-                                className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
-                                  allValuesHidden
-                                    ? 'opacity-60 border-slate-300 dark:border-slate-600'
-                                    : 'border-slate-300 dark:border-slate-600'
-                                } ${
-                                  darkMode
-                                    ? 'text-slate-100 bg-slate-800/60'
-                                    : 'text-slate-700 bg-slate-50'
-                                }`}
-                              >
-                                시가 전체
-                                {allValuesHidden ? ' 표시' : ' 숨기기'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setHiddenAssetSeries((prev) => {
-                                    const next = { ...prev };
-                                    const nextHidden = !allPrincipalsHidden;
-                                    principalKeys.forEach((k) => {
-                                      next[k] = nextHidden;
-                                    });
-                                    return next;
-                                  })
-                                }
-                                className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
-                                  allPrincipalsHidden
-                                    ? 'opacity-60 border-slate-300 dark:border-slate-600'
-                                    : 'border-slate-300 dark:border-slate-600'
-                                } ${
-                                  darkMode
-                                    ? 'text-slate-100 bg-slate-800/60'
-                                    : 'text-slate-700 bg-slate-50'
-                                }`}
-                              >
-                                원금 전체
-                                {allPrincipalsHidden ? ' 표시' : ' 숨기기'}
-                              </button>
-                            </div>
-                            <div className="flex flex-wrap gap-2 justify-center">
-                              {payload?.map((entry: any) => {
-                                const key = entry.dataKey as string;
-                                const isHidden = !!hiddenAssetSeries[key];
-                                return (
-                                  <button
-                                    key={key}
-                                    type="button"
-                                    onClick={() =>
-                                      setHiddenAssetSeries((prev) => ({
-                                        ...prev,
-                                        [key]: !prev[key],
-                                      }))
-                                    }
-                                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border transition-all ${
-                                      isHidden
-                                        ? 'opacity-40 border-transparent'
-                                        : 'opacity-100 border-slate-200 dark:border-slate-600'
-                                    } ${
-                                      darkMode
-                                        ? 'text-slate-200'
-                                        : 'text-slate-700'
-                                    }`}
-                                  >
-                                    <span
-                                      className="w-2 h-2 rounded-full"
-                                      style={{ backgroundColor: entry.color }}
-                                    />
-                                    <span>{entry.value}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      }}
-                    />
-                    {Object.keys(NAMES)
-                      .filter((k) => k !== 'cash')
-                      .map((k, i) => (
-                        <React.Fragment key={k}>
-                          <Line
-                            type="monotone"
-                            dataKey={`value_${k}`}
-                            name={`${NAMES[k]} 시가`}
-                            stroke={COLORS[i % COLORS.length]}
-                            strokeWidth={2.2}
-                            dot={false}
-                            hide={!!hiddenAssetSeries[`value_${k}`]}
-                          >
-                            <LabelList
-                              content={(props) =>
-                                renderAssetEndLabel(props, NAMES[k])
-                              }
-                            />
-                          </Line>
-                          <Line
-                            type="monotone"
-                            dataKey={`principal_${k}`}
-                            name={`${NAMES[k]} 원금`}
-                            stroke={darkMode ? '#64748b' : '#cbd5f5'}
-                            strokeDasharray="4 2"
-                            strokeWidth={1.6}
-                            dot={false}
-                            hide={!!hiddenAssetSeries[`principal_${k}`]}
-                          />
-                        </React.Fragment>
-                      ))}
-                  </LineChart>
-                )}
-              </ResponsiveContainer>
-            </div>
+          <div className="lg:col-span-2">
+            <AssetGrowthSection
+              chartHistory={chartHistory}
+              darkMode={darkMode}
+              formatNum={formatNum}
+              assetChartView={assetChartView}
+              setAssetChartView={setAssetChartView}
+              chartLegendHidden={chartLegendHidden}
+              setChartLegendHidden={setChartLegendHidden}
+              hiddenAssetSeries={hiddenAssetSeries}
+              setHiddenAssetSeries={setHiddenAssetSeries}
+              names={NAMES}
+              colors={COLORS}
+            />
           </div>
 
-          <div className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm overflow-hidden">
-            <h2 className="text-sm font-black uppercase tracking-widest mb-6 leading-none flex items-center gap-2 text-slate-700 dark:text-slate-200">
-              <Layers size={18} />
-              보유 종목 상세
-            </h2>
-            <div className="space-y-4 overflow-y-auto max-h-[300px] pr-2">
-              {Object.keys(NAMES)
-                .filter((k) => k !== 'cash')
-                .map((k, i) => {
-                  const p = portfolio[k];
-                  return (
-                    <div
-                      key={k}
-                      className="flex justify-between items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-2xl transition-all border border-transparent hover:border-slate-100 dark:hover:border-slate-600"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-1 h-8 rounded-full"
-                          style={{ backgroundColor: COLORS[i % COLORS.length] }}
-                        ></div>
-                        <div>
-                          <p className="text-xs font-black text-slate-800 dark:text-slate-200 leading-none">
-                            {NAMES[k]}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs">
-                              {k === 'btc'
-                                ? formatDec(p.qty)
-                                : formatNum(p.qty)}
-                              주
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
-                              평단: {formatNum(Math.floor(p.avg))}원
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-black text-slate-900 dark:text-slate-100 leading-none mb-1">
-                          {formatNum(Math.floor(p.val))}원
-                        </p>
-                        <p
-                          className={`text-[10px] font-bold ${
-                            p.roi >= 0 ? 'text-blue-500' : 'text-rose-500'
-                          }`}
-                        >
-                          {p.roi.toFixed(1)}% {p.roi >= 0 ? '▲' : '▼'}
-                        </p>
-                        {p.qty > 0 && p.avg > 0 && (
-                          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
-                            현재가 대비{' '}
-                            {(
-                              (currentPriceMap[k] / p.avg - 1 || 0) * 100
-                            ).toFixed(1)}
-                            %
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
+          <HoldingsDetailSection
+            portfolio={portfolio}
+            names={NAMES}
+            colors={COLORS}
+            formatNum={formatNum}
+            formatDec={formatDec}
+            currentPriceMap={currentPriceMap}
+          />
         </div>
 
-        {/* 매수 기록 히스토리 */}
-        <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm">
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="w-full flex items-center justify-between text-left mb-4"
-          >
-            <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-slate-700 dark:text-slate-200">
-              <History size={18} />
-              매수 기록
-            </h2>
-            <ChevronDown
-              className={`transition-transform ${
-                showHistory ? 'rotate-180' : ''
-              }`}
-              size={20}
-            />
-          </button>
-          {showHistory && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                <select
-                  value={historyFilterMonth}
-                  onChange={(e) => setHistoryFilterMonth(e.target.value)}
-                  className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-100"
-                >
-                  <option value="">전체 월</option>
-                  {Array.from(
-                    new Set(dbHistory.records.map((r) => r.date.slice(0, 7)))
-                  )
-                    .sort()
-                    .reverse()
-                    .map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                </select>
-                <select
-                  value={historyFilterAsset}
-                  onChange={(e) => setHistoryFilterAsset(e.target.value)}
-                  className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-100"
-                >
-                  <option value="">전체 종목</option>
-                  {Object.entries(NAMES)
-                    .filter(([k]) => k !== 'cash')
-                    .map(([k, name]) => (
-                      <option key={k} value={k}>
-                        {name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div className="overflow-x-auto max-h-[240px] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-600">
-                <table className="w-full text-xs text-slate-700 dark:text-slate-100">
-                  <thead className="bg-slate-100 dark:bg-slate-700 sticky top-0 text-slate-900 dark:text-slate-100">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-black">날짜</th>
-                      <th className="px-3 py-2 text-left font-black">종목</th>
-                      <th className="px-3 py-2 text-right font-black">단가</th>
-                      <th className="px-3 py-2 text-right font-black">수량</th>
-                      <th className="px-3 py-2 text-right font-black">금액</th>
-                      <th className="px-3 py-2 text-center font-black">비고</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRecords.map((r) => (
-                      <tr
-                        key={r.id || r.date + r.asset_key + r.amount}
-                        className="border-t border-slate-100 dark:border-slate-600"
-                      >
-                        <td className="px-3 py-2">{r.date}</td>
-                        <td className="px-3 py-2">
-                          {NAMES[r.asset_key] ?? r.asset_key}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {formatNum(Number(r.price))}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {r.asset_key === 'btc'
-                            ? formatDec(Number(r.quantity))
-                            : formatNum(Number(r.quantity))}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {formatNum(Number(r.amount))}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          {r.is_panic_buy ? '추매' : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredRecords.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="px-3 py-6 text-center text-slate-400 dark:text-slate-500"
-                        >
-                          기록 없음
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </section>
+        <InvestmentHistorySection
+          open={showHistory}
+          onToggle={() => setShowHistory(!showHistory)}
+          filterMonth={historyFilterMonth}
+          filterAsset={historyFilterAsset}
+          onFilterMonthChange={setHistoryFilterMonth}
+          onFilterAssetChange={setHistoryFilterAsset}
+          records={filteredRecords}
+          allRecords={dbHistory.records}
+          names={NAMES}
+          formatNum={formatNum}
+          formatDec={formatDec}
+        />
 
-        {/* 월별 입금 내역 */}
-        <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm">
-          <button
-            onClick={() => setShowDeposits(!showDeposits)}
-            className="w-full flex items-center justify-between text-left mb-4"
-          >
-            <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-slate-700 dark:text-slate-200">
-              <Banknote size={18} />
-              월별 입금 내역
-            </h2>
-            <ChevronDown
-              className={`transition-transform ${
-                showDeposits ? 'rotate-180' : ''
-              }`}
-              size={20}
-            />
-          </button>
-          {showDeposits && (
-            <div className="overflow-x-auto max-h-[200px] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-600">
-              <table className="w-full text-xs text-slate-700 dark:text-slate-100">
-                <thead className="bg-slate-100 dark:bg-slate-700 sticky top-0 text-slate-900 dark:text-slate-100">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-black">월</th>
-                    <th className="px-3 py-2 text-right font-black">입금액</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...dbHistory.budgets].reverse().map((b) => (
-                    <tr
-                      key={b.id || b.month_date}
-                      className="border-t border-slate-100 dark:border-slate-600"
-                    >
-                      <td className="px-3 py-2">{b.month_date}</td>
-                      <td className="px-3 py-2 text-right">
-                        {formatNum(Number(b.amount))}원
-                      </td>
-                    </tr>
-                  ))}
-                  {dbHistory.budgets.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={2}
-                        className="px-3 py-6 text-center text-slate-400 dark:text-slate-500"
-                      >
-                        기록 없음
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <DepositsHistorySection
+          open={showDeposits}
+          onToggle={() => setShowDeposits(!showDeposits)}
+          budgets={dbHistory.budgets}
+          formatNum={formatNum}
+        />
 
-        {/* DB 초기화 비밀번호 모달 */}
-        {showResetPasswordModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-            onClick={() => {
-              setShowResetPasswordModal(false);
-              setResetPasswordInput('');
-            }}
-          >
-            <div
-              className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-600 shadow-2xl max-w-sm w-full p-6"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
-                <Trash2 size={20} className="text-rose-500" /> DB 초기화
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                비밀번호를 입력하면 모든 투자 기록과 월별 예산이 삭제됩니다.
-              </p>
-              <input
-                type="password"
-                inputMode="numeric"
-                placeholder="비밀번호"
-                value={resetPasswordInput}
-                onChange={(e) => setResetPasswordInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onConfirmResetDB();
-                }}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 mb-4"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setShowResetPasswordModal(false);
-                    setResetPasswordInput('');
-                  }}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  취소
-                </button>
-                <button
-                  onClick={onConfirmResetDB}
-                  disabled={isSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm hover:bg-rose-700 disabled:opacity-50"
-                >
-                  {isSaving ? '처리 중…' : '초기화 실행'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <PasswordConfirmModal
+          open={showResetPasswordModal}
+          onClose={() => {
+            setShowResetPasswordModal(false);
+            setResetPasswordInput('');
+          }}
+          passwordValue={resetPasswordInput}
+          onPasswordChange={setResetPasswordInput}
+          onConfirm={onConfirmResetDB}
+          isSaving={isSaving}
+          variant="reset-db"
+        />
 
-        {/* 장부 기록 비밀번호 모달 */}
-        {showPanicBuyPasswordModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-            onClick={() => {
-              setShowPanicBuyPasswordModal(false);
-              setPanicBuyPasswordInput('');
-            }}
-          >
-            <div
-              className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-600 shadow-2xl max-w-sm w-full p-6"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
-                <Save size={20} className="text-blue-500" /> 장부 기록
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                비밀번호를 입력하면 장부에 기록됩니다.
-              </p>
-              <input
-                type="password"
-                inputMode="numeric"
-                placeholder="비밀번호"
-                value={panicBuyPasswordInput}
-                onChange={(e) => setPanicBuyPasswordInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onConfirmPanicBuySave();
-                }}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 mb-4"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setShowPanicBuyPasswordModal(false);
-                    setPanicBuyPasswordInput('');
-                  }}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  취소
-                </button>
-                <button
-                  onClick={onConfirmPanicBuySave}
-                  disabled={isSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isSaving ? '저장 중…' : '저장'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <PasswordConfirmModal
+          open={showPanicBuyPasswordModal}
+          onClose={() => {
+            setShowPanicBuyPasswordModal(false);
+            setPanicBuyPasswordInput('');
+          }}
+          passwordValue={panicBuyPasswordInput}
+          onPasswordChange={setPanicBuyPasswordInput}
+          onConfirm={onConfirmPanicBuySave}
+          isSaving={isSaving}
+          variant="panic-save"
+        />
 
-        {/* 설정 모달 */}
-        {showSettings && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-            onClick={() => setShowSettings(false)}
-          >
-            <div
-              className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-600 shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-6 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
-                <h2 className="text-lg font-black flex items-center gap-2 text-slate-800 dark:text-slate-100">
-                  <Settings size={20} /> 비중 설정
-                </h2>
-                <button
-                  onClick={() => setShowSettings(false)}
-                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="p-6 space-y-4">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  각 자산의 목표 비중을 입력하세요. 합이 일치하지 않아도 비율로
-                  사용됩니다.
-                </p>
-                <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600">
-                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                    기본 월 투자금액
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9,]*"
-                      value={inputBudget.toLocaleString()}
-                      onChange={(e) =>
-                        setInputBudget(
-                          Number(e.target.value.replace(/[^0-9]/g, '')) || 0
-                        )
-                      }
-                      className="w-32 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-bold text-right text-slate-900 dark:text-slate-100"
-                    />
-                    <span className="text-xs text-slate-500">원</span>
-                  </div>
-                </div>
-                {Object.keys(DEFAULT_RATIOS).map((k) => (
-                  <label
-                    key={k}
-                    className="flex items-center justify-between gap-4"
-                  >
-                    <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                      {NAMES[k]}
-                    </span>
-                    <input
-                      type="number"
-                      step={k === 'btc' ? 0.1 : 1}
-                      min={0}
-                      value={customRatios?.[k] ?? DEFAULT_RATIOS[k]}
-                      onChange={(e) => {
-                        const v = Number(e.target.value) || 0;
-                        setCustomRatios((prev) => {
-                          const next = { ...(prev ?? DEFAULT_RATIOS), [k]: v };
-                          localStorage.setItem(
-                            STORAGE_KEYS.ratios,
-                            JSON.stringify(next)
-                          );
-                          return next;
-                        });
-                      }}
-                      className="w-24 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm font-bold text-slate-900 dark:text-slate-100"
-                    />
-                  </label>
-                ))}
-                <div className="flex gap-2 pt-4">
-                  <button
-                    onClick={() => saveCustomRatios(null)}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
-                  >
-                    기본값 복원
-                  </button>
-                  <button
-                    onClick={() => setShowSettings(false)}
-                    className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700"
-                  >
-                    닫기
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <SettingsModal
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          inputBudget={inputBudget}
+          setInputBudget={setInputBudget}
+          customRatios={customRatios}
+          setCustomRatios={setCustomRatios}
+          names={NAMES}
+          defaultRatios={DEFAULT_RATIOS}
+          storageKeyRatios={STORAGE_KEYS.ratios}
+          onResetToDefault={() => saveCustomRatios(null)}
+        />
       </div>
     </div>
   );

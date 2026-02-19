@@ -142,7 +142,16 @@ export default function RealDbTower() {
   const [dbHistory, setDbHistory] = useState<{
     budgets: any[];
     records: any[];
-  }>({ budgets: [], records: [] });
+    /** 회차별 총입금·매수합·통장잔고. 삭제 시 deposit 기준으로 정확히 되돌림 */
+    batchSummaries: {
+      batch_id: string;
+      date: string;
+      deposit: number;
+      total_spent: number;
+      remaining_cash: number;
+    }[];
+    snapshots: { date: string; balance: number }[];
+  }>({ budgets: [], records: [], batchSummaries: [], snapshots: [] });
   const [loading, setLoading] = useState(true);
   const [isPanicBuyMode, setIsPanicBuyMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -235,7 +244,46 @@ export default function RealDbTower() {
         .from('investment_records')
         .select('*')
         .order('date', { ascending: true });
-      setDbHistory({ budgets: bData || [], records: rData || [] });
+      let snapshots: { date: string; balance: number }[] = [];
+      try {
+        const { data: sData } = await supabase
+          .from('cash_balance_snapshots')
+          .select('date, balance')
+          .order('date', { ascending: true });
+        snapshots = (sData || []).map((s) => ({
+          date: String(s.date).slice(0, 10),
+          balance: Number(s.balance ?? 0),
+        }));
+      } catch {
+        // 테이블 없을 수 있음
+      }
+      let batchSummaries: {
+        batch_id: string;
+        date: string;
+        deposit: number;
+        total_spent: number;
+        remaining_cash: number;
+      }[] = [];
+      try {
+        const { data: sumData } = await supabase
+          .from('batch_summaries')
+          .select('batch_id, date, deposit, total_spent, remaining_cash');
+        batchSummaries = (sumData || []).map((s) => ({
+          batch_id: String(s.batch_id),
+          date: String(s.date).slice(0, 10),
+          deposit: Number(s.deposit ?? 0),
+          total_spent: Number(s.total_spent ?? 0),
+          remaining_cash: Number(s.remaining_cash ?? 0),
+        }));
+      } catch {
+        // 테이블 없을 수 있음
+      }
+      setDbHistory({
+        budgets: bData || [],
+        records: rData || [],
+        batchSummaries,
+        snapshots,
+      });
     } finally {
       setLoading(false);
       setIsRefreshingPrice(false);
@@ -646,7 +694,7 @@ export default function RealDbTower() {
         .insert({ month_date: todayStr, amount: inputBudget });
     }
 
-    // B. 매수 기록 (같은 날 여러 번 저장해도 차수별로 구분해 삭제 가능하도록 batch_id 부여)
+    // B. 매수 기록 (같은 날 여러 번 저장해도 차수별로 구분해 삭제 가능하도록 batch_id·배치별 입금액 부여)
     const batchId = crypto.randomUUID();
     const records = Object.keys(buyPlan.guide).map((k) => ({
       date: todayStr,
@@ -656,10 +704,34 @@ export default function RealDbTower() {
       amount: buyPlan.guide[k].spent,
       is_panic_buy: isPanicBuyMode,
       batch_id: batchId,
+      batch_deposit: inputBudget,
     }));
     const validRecords = records.filter((r) => r.quantity > 0);
-    if (validRecords.length > 0)
+    const batchTotalSpent = validRecords.reduce(
+      (s, r) => s + Number(r.amount),
+      0,
+    );
+    const batchRemainingCash = Math.max(
+      0,
+      inputBudget - batchTotalSpent,
+    );
+    if (validRecords.length > 0) {
       await supabase.from('investment_records').insert(validRecords);
+      try {
+        await supabase.from('batch_summaries').upsert(
+          {
+            batch_id: batchId,
+            date: todayStr,
+            deposit: inputBudget,
+            total_spent: batchTotalSpent,
+            remaining_cash: batchRemainingCash,
+          },
+          { onConflict: 'batch_id' },
+        );
+      } catch {
+        // 테이블 없을 수 있음
+      }
+    }
 
     // C. 해당 날짜 기준 통장 잔고 스냅샷 저장 (CMA 이자 계산·기록용)
     const totalDepositAfter =
@@ -706,6 +778,11 @@ export default function RealDbTower() {
       .neq('id', '00000000-0000-0000-0000-000000000000');
     try {
       await supabase.from('cash_balance_snapshots').delete().neq('date', '1970-01-01');
+    } catch {
+      // 테이블이 없을 수 있음
+    }
+    try {
+      await supabase.from('batch_summaries').delete().neq('batch_id', '00000000-0000-0000-0000-000000000000');
     } catch {
       // 테이블이 없을 수 있음
     }
@@ -811,6 +888,67 @@ export default function RealDbTower() {
     if (deleteByDateSelected.length === 0) return;
     setIsDeletingByDate(true);
     try {
+      // 월별로 빼야 할 입금 합계 = 회차별 총 기록액(deposit). batch_summaries에 있으면 사용, 없으면 batch_deposit 또는 매수합으로 대체
+      const subtractByMonth: Record<string, number> = {};
+      for (const key of deleteByDateSelected) {
+        const [date, batchIdPart] = key.split('|');
+        const batchId = batchIdPart === 'null' ? null : batchIdPart;
+        const yearMonth = date.substring(0, 7);
+        const batchRecords = dbHistory.records.filter((r) => {
+          const rec = r as { date?: string; batch_id?: string | null };
+          const d = rec.date?.substring(0, 10);
+          const bid = rec.batch_id ?? null;
+          return d === date && (batchId === null ? bid == null : bid === batchId);
+        });
+        let batchDeposit = 0;
+        if (batchId != null) {
+          const summary = dbHistory.batchSummaries.find(
+            (s) => s.batch_id === batchId,
+          );
+          if (summary && summary.deposit > 0) {
+            batchDeposit = summary.deposit;
+          }
+        }
+        if (batchDeposit <= 0 && batchRecords.length > 0) {
+          const firstRec = batchRecords[0] as { batch_deposit?: number | null; amount?: number } | undefined;
+          if (firstRec != null && Number(firstRec.batch_deposit) > 0) {
+            batchDeposit = Number(firstRec.batch_deposit);
+          } else {
+            batchDeposit = batchRecords.reduce(
+              (sum, r) => sum + Number((r as { amount?: number }).amount ?? 0),
+              0,
+            );
+          }
+        }
+        if (batchDeposit > 0) {
+          subtractByMonth[yearMonth] =
+            (subtractByMonth[yearMonth] ?? 0) + batchDeposit;
+        }
+      }
+      for (const [yearMonth, totalToSubtract] of Object.entries(
+        subtractByMonth,
+      )) {
+        if (totalToSubtract <= 0) continue;
+        const monthRows = dbHistory.budgets.filter((b) =>
+          (b.month_date || '').toString().startsWith(yearMonth),
+        );
+        if (monthRows.length === 0) continue;
+        const currentTotal = monthRows.reduce(
+          (s, b) => s + Number(b.amount ?? 0),
+          0,
+        );
+        const newAmount = Math.max(0, currentTotal - totalToSubtract);
+        await supabase
+          .from('monthly_budgets')
+          .update({ amount: newAmount })
+          .eq('id', monthRows[0].id);
+        for (let i = 1; i < monthRows.length; i++) {
+          await supabase
+            .from('monthly_budgets')
+            .update({ amount: 0 })
+            .eq('id', monthRows[i].id);
+        }
+      }
       for (const key of deleteByDateSelected) {
         const [date, batchIdPart] = key.split('|');
         const batchId = batchIdPart === 'null' ? null : batchIdPart;
@@ -826,17 +964,31 @@ export default function RealDbTower() {
             .delete()
             .eq('date', date)
             .eq('batch_id', batchId);
+          try {
+            await supabase
+              .from('batch_summaries')
+              .delete()
+              .eq('batch_id', batchId);
+          } catch {
+            // 테이블 없을 수 있음
+          }
         }
       }
+      await loadAllData();
       alert(`✅ 선택한 ${deleteByDateSelected.length}개 기록이 삭제되었습니다.`);
       setShowDeleteByDateModal(false);
       setDeleteByDateSelected([]);
       setDeleteByDatePassword('');
-      loadAllData();
     } finally {
       setIsDeletingByDate(false);
     }
-  }, [deleteByDatePassword, deleteByDateSelected]);
+  }, [
+    deleteByDatePassword,
+    deleteByDateSelected,
+    dbHistory.records,
+    dbHistory.budgets,
+    dbHistory.batchSummaries,
+  ]);
 
   if (loading || !myAccount || !buyPlan) return <LoadingScreen />;
 

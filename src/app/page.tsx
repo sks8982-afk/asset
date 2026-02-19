@@ -25,6 +25,7 @@ const STORAGE_KEYS = {
   goalAsset: 'asset-tracker-goal-asset',
   goalRoiShown: 'asset-tracker-goal-roi-shown',
   goalAssetShown: 'asset-tracker-goal-asset-shown',
+  cmaRate: 'asset-tracker-cma-rate',
 };
 
 const COLORS = [
@@ -116,6 +117,11 @@ export default function RealDbTower() {
   const [showPanicBuyPasswordModal, setShowPanicBuyPasswordModal] =
     useState(false);
   const [panicBuyPasswordInput, setPanicBuyPasswordInput] = useState('');
+  const [cmaRate, setCmaRate] = useState<number>(() => {
+    if (typeof window === 'undefined') return 1.95;
+    const v = localStorage.getItem(STORAGE_KEYS.cmaRate);
+    return v ? Number(v) : 1.95;
+  });
 
   const getRatios = useCallback((): Record<string, number> => {
     return customRatios ?? DEFAULT_RATIOS;
@@ -187,6 +193,11 @@ export default function RealDbTower() {
     if (Number.isFinite(inputBudget) && inputBudget > 0)
       localStorage.setItem(STORAGE_KEYS.budget, String(inputBudget));
   }, [inputBudget]);
+
+  useEffect(() => {
+    if (Number.isFinite(cmaRate) && cmaRate >= 0)
+      localStorage.setItem(STORAGE_KEYS.cmaRate, String(cmaRate));
+  }, [cmaRate]);
 
   const saveCustomRatios = useCallback(
     (ratios: Record<string, number> | null) => {
@@ -438,7 +449,19 @@ export default function RealDbTower() {
     const thisMonthResidue = isPanicBuyMode
       ? inputBudget + myAccount.currentCashBalance - totalMonthlySpend
       : inputBudget - totalMonthlySpend;
-    return { guide, thisMonthResidue, totalExpectedSpend };
+    // CMA 월 예상 이자: 이달 잔여 현금 + 현재 통장 잔고(기존에 매수 후 남은 현금) 모두 CMA에 있음
+    const cmaBalanceForInterest = isPanicBuyMode
+      ? thisMonthResidue
+      : Math.max(0, myAccount.currentCashBalance) + Math.max(0, thisMonthResidue);
+    const cmaMonthlyInterest =
+      Math.max(0, cmaBalanceForInterest) * ((cmaRate || 0) / 100 / 12);
+    return {
+      guide,
+      thisMonthResidue,
+      totalExpectedSpend,
+      cmaMonthlyInterest,
+      cmaBalanceForInterest,
+    };
   }, [
     myAccount,
     inputBudget,
@@ -446,6 +469,7 @@ export default function RealDbTower() {
     manualEdits,
     getRatios,
     ratioSum,
+    cmaRate,
   ]);
 
   const weightChartData = useMemo(() => {
@@ -627,7 +651,13 @@ export default function RealDbTower() {
     currentExchangeRate,
     currentPriceMap,
   } = myAccount;
-  const { guide, thisMonthResidue, totalExpectedSpend } = buyPlan;
+  const {
+    guide,
+    thisMonthResidue,
+    totalExpectedSpend,
+    cmaMonthlyInterest,
+    cmaBalanceForInterest,
+  } = buyPlan;
   const formatNum = (n: number) => Math.floor(n).toLocaleString();
   const formatDec = (n: number) =>
     n.toLocaleString(undefined, {
@@ -701,6 +731,9 @@ export default function RealDbTower() {
           manualEdits={manualEdits}
           setManualEdits={setManualEdits}
           thisMonthResidue={thisMonthResidue}
+          cmaMonthlyInterest={cmaMonthlyInterest}
+          cmaBalanceForInterest={cmaBalanceForInterest}
+          cmaRate={cmaRate}
           formatNum={formatNum}
         />
 
@@ -805,6 +838,9 @@ export default function RealDbTower() {
           defaultRatios={DEFAULT_RATIOS}
           storageKeyRatios={STORAGE_KEYS.ratios}
           onResetToDefault={() => saveCustomRatios(null)}
+          cmaRate={cmaRate}
+          setCmaRate={setCmaRate}
+          storageKeyCmaRate={STORAGE_KEYS.cmaRate}
         />
       </div>
     </div>

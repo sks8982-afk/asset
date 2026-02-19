@@ -16,6 +16,9 @@ type SettingsModalProps = {
   defaultRatios: Record<string, number>;
   storageKeyRatios: string;
   onResetToDefault: () => void;
+  cmaRate: number;
+  setCmaRate: (v: number) => void;
+  storageKeyCmaRate: string;
 };
 
 export function SettingsModal({
@@ -29,6 +32,9 @@ export function SettingsModal({
   defaultRatios,
   storageKeyRatios,
   onResetToDefault,
+  cmaRate,
+  setCmaRate,
+  storageKeyCmaRate,
 }: SettingsModalProps) {
   if (!open) return null;
 
@@ -77,6 +83,32 @@ export function SettingsModal({
               <span className="text-xs text-slate-500">원</span>
             </div>
           </div>
+          <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600">
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+              CMA 연 이자율
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step={0.1}
+                min={0}
+                max={20}
+                value={cmaRate}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v) && v >= 0) {
+                    setCmaRate(v);
+                    localStorage.setItem(storageKeyCmaRate, String(v));
+                  }
+                }}
+                className="w-20 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-bold text-right text-slate-900 dark:text-slate-100"
+              />
+              <span className="text-xs text-slate-500">%</span>
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-400 -mt-2">
+            잔여 현금(CMA) 월 예상 이자 계산에 사용됩니다.
+          </p>
           {Object.keys(defaultRatios).map((k) => (
             <label
               key={k}

@@ -39,14 +39,24 @@ type AssetGrowthSectionProps = {
   colors: string[];
 };
 
+type LabelListProps = {
+  x?: number | string;
+  y?: number | string;
+  index?: number;
+  value?: number | string | null;
+};
+
 function renderAssetEndLabel(
-  props: { x?: number; y?: number; index?: number; value?: number },
+  props: LabelListProps,
   label: string,
   lastIndex: number,
   darkMode: boolean
 ) {
-  const { x = 0, y = 0, index = 0, value } = props;
-  if (index !== lastIndex || value == null) return null;
+  const x = Number(props.x) || 0;
+  const y = Number(props.y) || 0;
+  const index = props.index ?? 0;
+  const value = props.value;
+  if (index !== lastIndex || value == null || value === '') return null;
   return (
     <text
       x={x + 4}
@@ -128,7 +138,9 @@ export function AssetGrowthSection({
                 />
                 <YAxis hide domain={['auto', 'auto']} />
                 <Tooltip
-                  formatter={(v: number) => formatNum(v) + '원'}
+                  formatter={(v) =>
+                    v != null ? formatNum(Number(v)) + '원' : ''
+                  }
                   labelFormatter={(l) => l}
                   contentStyle={{
                     backgroundColor: darkMode ? '#020617' : '#ffffff',
@@ -352,7 +364,9 @@ export function AssetGrowthSection({
                   />
                   <YAxis hide domain={['auto', 'auto']} />
                   <Tooltip
-                    formatter={(v: number) => formatNum(v) + '원'}
+                    formatter={(v) =>
+                      v != null ? formatNum(Number(v)) + '원' : ''
+                    }
                     labelFormatter={(l) => l}
                     contentStyle={{
                       backgroundColor: darkMode ? '#020617' : '#ffffff',
@@ -380,7 +394,7 @@ export function AssetGrowthSection({
                         <LabelList
                           content={(props) =>
                             renderAssetEndLabel(
-                              props,
+                              props as LabelListProps,
                               names[k],
                               lastIndex,
                               darkMode

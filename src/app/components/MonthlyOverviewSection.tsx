@@ -11,6 +11,8 @@ type MonthlyOverviewSectionProps = {
   currentExchangeRate: number;
   totalExpectedSpend: number;
   currentCashBalance: number;
+  cumulativeCmaInterestToToday: number;
+  cmaRate: number;
   isPanicBuyMode: boolean;
   setIsPanicBuyMode: (value: boolean | ((prev: boolean) => boolean)) => void;
   formatNum: (n: number) => string;
@@ -23,6 +25,8 @@ export function MonthlyOverviewSection({
   currentExchangeRate,
   totalExpectedSpend,
   currentCashBalance,
+  cumulativeCmaInterestToToday,
+  cmaRate,
   isPanicBuyMode,
   setIsPanicBuyMode,
   formatNum,
@@ -78,6 +82,16 @@ export function MonthlyOverviewSection({
           >
             {formatNum(currentCashBalance)}원
           </p>
+          {cumulativeCmaInterestToToday > 0 && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-1">
+              + 오늘까지 CMA 누적 이자: {formatNum(cumulativeCmaInterestToToday)}원
+            </p>
+          )}
+          {cmaRate > 0 && (
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              연 {cmaRate}%(세전) 일별 반영
+            </p>
+          )}
         </div>
       </div>
 

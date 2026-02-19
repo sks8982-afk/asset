@@ -16,6 +16,7 @@ export type HeaderSectionProps = {
   onRefreshPrices: () => void;
   isRefreshingPrice: boolean;
   onOpenResetDb: () => void;
+  onOpenDeleteByDate: () => void;
   totalInvested: number;
   totalAsset: number;
   totalRoi: number;
@@ -29,6 +30,7 @@ export function HeaderSection({
   onRefreshPrices,
   isRefreshingPrice,
   onOpenResetDb,
+  onOpenDeleteByDate,
   totalInvested,
   totalAsset,
   totalRoi,
@@ -86,8 +88,17 @@ export function HeaderSection({
           </span>
         </button>
         <button
+          onClick={onOpenDeleteByDate}
+          className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 hover:border-amber-200 transition-all flex flex-col items-center justify-center gap-1"
+          title="날짜별 기록 삭제"
+        >
+          <Trash2 size={18} />
+          <span className="text-[9px] font-black uppercase">날짜별 삭제</span>
+        </button>
+        <button
           onClick={onOpenResetDb}
           className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-500 hover:border-rose-200 transition-all flex flex-col items-center justify-center gap-1"
+          title="DB 전체 초기화"
         >
           <Trash2 size={18} />
           <span className="text-[9px] font-black uppercase">DB 초기화</span>

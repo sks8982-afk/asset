@@ -24,9 +24,6 @@ export type BuyGuideSectionProps = {
   manualEdits: Record<string, number>;
   setManualEdits: (value: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   thisMonthResidue: number;
-  cmaMonthlyInterest: number;
-  cmaBalanceForInterest: number;
-  cmaRate: number;
   formatNum: (n: number) => string;
 };
 
@@ -41,9 +38,6 @@ export function BuyGuideSection({
   manualEdits,
   setManualEdits,
   thisMonthResidue,
-  cmaMonthlyInterest,
-  cmaBalanceForInterest,
-  cmaRate,
   formatNum,
 }: BuyGuideSectionProps) {
   const currentYearMonth = new Date().toISOString().slice(0, 7);
@@ -154,16 +148,6 @@ export function BuyGuideSection({
           <p className="text-2xl font-black leading-none">
             {formatNum(thisMonthResidue)}원
           </p>
-          {cmaMonthlyInterest > 0 && (
-            <>
-              <p className="text-xs text-emerald-400/90 mt-1">
-                + CMA 월 예상 이자: {formatNum(cmaMonthlyInterest)}원
-              </p>
-              <p className="text-sm font-bold text-emerald-300 mt-0.5">
-                이자 포함: {formatNum(cmaBalanceForInterest + cmaMonthlyInterest)}원
-              </p>
-            </>
-          )}
           <div className="mt-3 pt-3 border-t border-white/10">
             {isPanicBuyMode ? (
               <>
@@ -180,14 +164,9 @@ export function BuyGuideSection({
                   이번달 입금액 - 주식매수액
                 </p>
                 <p className="text-[10px] opacity-60 text-emerald-400">
-                  (하락장 비상금 사용분 제외)
+                  (구매 후 실제 통장에 남을 예상 금액)
                 </p>
               </>
-            )}
-            {cmaRate > 0 && (
-              <p className="text-[10px] opacity-50 mt-1">
-                통장 잔고+잔여 현금 기준 CMA 연 {cmaRate}%(세전) 월 예상 이자
-              </p>
             )}
           </div>
         </div>

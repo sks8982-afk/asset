@@ -138,19 +138,38 @@ export function AssetGrowthSection({
                 />
                 <YAxis hide domain={['auto', 'auto']} />
                 <Tooltip
-                  formatter={(v) =>
-                    v != null ? formatNum(Number(v)) + '원' : ''
-                  }
-                  labelFormatter={(l) => l}
-                  contentStyle={{
-                    backgroundColor: darkMode ? '#020617' : '#ffffff',
-                    border: '1px solid #64748b',
-                    color: darkMode ? '#e5e7eb' : '#0f172a',
-                    fontSize: 10,
-                  }}
-                  labelStyle={{
-                    color: darkMode ? '#e5e7eb' : '#0f172a',
-                    fontWeight: 700,
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length || !label) return null;
+                    const p = payload[0]?.payload as
+                      | {
+                          investment?: number;
+                          principal?: number;
+                          cmaInterest?: number;
+                        }
+                      | undefined;
+                    const inv = p?.investment ?? 0;
+                    const pr = p?.principal ?? 0;
+                    const cmaInterest = p?.cmaInterest ?? 0;
+                    return (
+                      <div
+                        className="px-3 py-2 rounded-xl border shadow-lg text-left"
+                        style={{
+                          backgroundColor: darkMode ? '#020617' : '#ffffff',
+                          borderColor: '#64748b',
+                          color: darkMode ? '#e5e7eb' : '#0f172a',
+                          fontSize: 10,
+                        }}
+                      >
+                        <p className="font-bold mb-1.5">{label}</p>
+                        <p>총 자산: {formatNum(inv)}원</p>
+                        <p>원금: {formatNum(pr)}원</p>
+                        {cmaInterest > 0 && (
+                          <p className="text-emerald-600 dark:text-emerald-400 mt-0.5">
+                            CMA 누적 이자: {formatNum(cmaInterest)}원
+                          </p>
+                        )}
+                      </div>
+                    );
                   }}
                 />
                 <Legend

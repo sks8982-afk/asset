@@ -13,6 +13,7 @@ import { InvestmentHistorySection } from './components/InvestmentHistorySection'
 import { DepositsHistorySection } from './components/DepositsHistorySection';
 import { PanicBuyBanner } from './components/PanicBuyBanner';
 import { PasswordConfirmModal } from './components/PasswordConfirmModal';
+import { DeleteByDateModal } from './components/DeleteByDateModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GoalToastBar } from './components/GoalToastBar';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -56,6 +57,79 @@ const DEFAULT_RATIOS: Record<string, number> = {
 };
 /** DB 초기화 시 필요한 비밀번호 (일단 하드코딩) */
 const RESET_DB_PASSWORD = '134679';
+
+/** 특정 날짜(YYYY-MM-DD) 기준 CMA 잔액: 누적 입금 - 누적 매수 */
+function getCashBalanceOnDate(
+  dateStr: string,
+  budgets: { month_date: string; amount?: number }[],
+  records: { date: string; amount?: number }[],
+): number {
+  const deposit =
+    budgets
+      .filter((b) => (b.month_date || '').substring(0, 10) <= dateStr)
+      .reduce((acc, cur) => acc + Number(cur.amount ?? 0), 0) || 0;
+  const spent =
+    records
+      .filter((r) => (r.date || '').substring(0, 10) <= dateStr)
+      .reduce((acc, cur) => acc + Number(cur.amount ?? 0), 0) || 0;
+  return Math.max(0, deposit - spent);
+}
+
+/** 해당 월(YYYY-MM) 동안 일별 잔액 기준으로 쌓인 CMA 이자 (연이자율 % 기준) */
+function getInterestAccruedInMonth(
+  yearMonth: string,
+  budgets: { month_date: string; amount?: number }[],
+  records: { date: string; amount?: number }[],
+  annualRatePct: number,
+): number {
+  const [y, m] = yearMonth.split('-').map(Number);
+  if (!y || !m) return 0;
+  const lastDay = new Date(y, m, 0).getDate();
+  let interest = 0;
+  const dailyRate = annualRatePct / 100 / 365;
+  for (let d = 1; d <= lastDay; d++) {
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const balance = getCashBalanceOnDate(dateStr, budgets, records);
+    interest += balance * dailyRate;
+  }
+  return interest;
+}
+
+/** 월별 시점까지의 누적 CMA 이자 (marketData 순서의 월 배열 기준) */
+function getCumulativeInterestByMonths(
+  monthStrings: string[],
+  budgets: { month_date: string; amount?: number }[],
+  records: { date: string; amount?: number }[],
+  annualRatePct: number,
+): number[] {
+  const out: number[] = [];
+  let cum = 0;
+  for (const ym of monthStrings) {
+    cum += getInterestAccruedInMonth(ym, budgets, records, annualRatePct);
+    out.push(cum);
+  }
+  return out;
+}
+
+/** 현재월 1일 ~ 오늘까지 쌓인 이자 */
+function getInterestFromMonthStartToToday(
+  budgets: { month_date: string; amount?: number }[],
+  records: { date: string; amount?: number }[],
+  annualRatePct: number,
+): number {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const today = now.getDate();
+  let interest = 0;
+  const dailyRate = annualRatePct / 100 / 365;
+  for (let d = 1; d <= today; d++) {
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const balance = getCashBalanceOnDate(dateStr, budgets, records);
+    interest += balance * dailyRate;
+  }
+  return interest;
+}
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useState(() =>
@@ -117,6 +191,12 @@ export default function RealDbTower() {
   const [showPanicBuyPasswordModal, setShowPanicBuyPasswordModal] =
     useState(false);
   const [panicBuyPasswordInput, setPanicBuyPasswordInput] = useState('');
+  const [showDeleteByDateModal, setShowDeleteByDateModal] = useState(false);
+  const [deleteByDateSelected, setDeleteByDateSelected] = useState<string[]>(
+    [],
+  );
+  const [deleteByDatePassword, setDeleteByDatePassword] = useState('');
+  const [isDeletingByDate, setIsDeletingByDate] = useState(false);
   const [cmaRate, setCmaRate] = useState<number>(() => {
     if (typeof window === 'undefined') return 1.95;
     const v = localStorage.getItem(STORAGE_KEYS.cmaRate);
@@ -262,8 +342,17 @@ export default function RealDbTower() {
           totalAssetVal > 0 ? (portfolio[k].val / totalAssetVal) * 100 : 0;
     });
 
+    // 일별 CMA 이자 누적 (월별 시점)
+    const monthStrings = marketData.map((m) => m.d);
+    const cumulativeInterestByMonth = getCumulativeInterestByMonths(
+      monthStrings,
+      dbHistory.budgets,
+      dbHistory.records,
+      cmaRate || 0,
+    );
+
     // 차트 데이터 (DB기반 역추적) — 과거는 월별 시세, 마지막은 실시간 시세 반영
-    const chartHistoryRaw = marketData.map((mPoint) => {
+    const chartHistoryRaw = marketData.map((mPoint, idx) => {
       const date = mPoint.d;
       const depositUntilNow = dbHistory.budgets
         .filter((b) => b.month_date.substring(0, 7) <= date)
@@ -276,6 +365,7 @@ export default function RealDbTower() {
         0,
       );
       const cashUntilNow = depositUntilNow - spentUntilNow;
+      const cmaInterest = cumulativeInterestByMonth[idx] ?? 0;
 
       // 종목별 원금/시세 추적
       let stockValUntilNow = 0;
@@ -299,7 +389,9 @@ export default function RealDbTower() {
       const base: any = {
         date,
         principal: depositUntilNow,
-        investment: stockValUntilNow + cashUntilNow,
+        investment: stockValUntilNow + cashUntilNow + cmaInterest,
+        cash: cashUntilNow,
+        cmaInterest,
       };
 
       // chartHistory 에 종목별 데이터도 함께 포함
@@ -311,14 +403,33 @@ export default function RealDbTower() {
       return base;
     });
 
-    // 마지막 시점: 실시간 시세(livePrices)가 있으면 총자산만 현재 시세 기준으로 덮어씀
+    // 오늘까지의 누적 이자 (마지막 차트 포인트가 이번 달이면 해당 월 1일~오늘만, 아니면 지난달말+이번달 1일~오늘)
+    const currentYearMonth = new Date()
+      .toISOString()
+      .slice(0, 7);
+    const lastMonthInData = monthStrings[monthStrings.length - 1];
+    const interestUpToToday =
+      chartHistoryRaw.length > 0
+        ? (lastMonthInData === currentYearMonth
+            ? (cumulativeInterestByMonth[cumulativeInterestByMonth.length - 2] ??
+                0)
+            : cumulativeInterestByMonth[cumulativeInterestByMonth.length - 1] ??
+              0) +
+          getInterestFromMonthStartToToday(
+            dbHistory.budgets,
+            dbHistory.records,
+            cmaRate || 0,
+          )
+        : 0;
     const chartHistory =
       chartHistoryRaw.length === 0
         ? chartHistoryRaw
         : livePrices
           ? chartHistoryRaw.slice(0, -1).concat({
               ...chartHistoryRaw[chartHistoryRaw.length - 1],
-              investment: totalStockValue + currentCashBalance,
+              investment:
+                totalStockValue + currentCashBalance + interestUpToToday,
+              cmaInterest: interestUpToToday,
             })
           : chartHistoryRaw;
 
@@ -336,13 +447,14 @@ export default function RealDbTower() {
       currentPriceMap,
       prevPriceMap,
       totalStockValue,
-      totalAsset: totalStockValue + currentCashBalance,
+      totalAsset: totalStockValue + currentCashBalance + interestUpToToday,
       totalInvested: totalDeposit,
       isCrash,
       chartHistory,
       currentExchangeRate,
+      cumulativeCmaInterestToToday: interestUpToToday,
     };
-  }, [marketData, dbHistory, livePrices]);
+  }, [marketData, dbHistory, livePrices, cmaRate]);
 
   // 2. 매수 가이드 계산 (핵심 로직)
   const buyPlan = useMemo(() => {
@@ -547,6 +659,23 @@ export default function RealDbTower() {
     if (validRecords.length > 0)
       await supabase.from('investment_records').insert(validRecords);
 
+    // C. 해당 날짜 기준 통장 잔고 스냅샷 저장 (CMA 이자 계산·기록용)
+    const totalDepositAfter =
+      dbHistory.budgets.reduce((a, b) => a + Number(b.amount ?? 0), 0) +
+      inputBudget;
+    const totalSpentAfter =
+      dbHistory.records.reduce((a, r) => a + Number(r.amount ?? 0), 0) +
+      validRecords.reduce((a, r) => a + Number(r.amount), 0);
+    const balanceAfter = Math.max(0, totalDepositAfter - totalSpentAfter);
+    try {
+      await supabase.from('cash_balance_snapshots').upsert(
+        { date: todayStr, balance: balanceAfter },
+        { onConflict: 'date' },
+      );
+    } catch {
+      // 테이블이 없으면 무시 (Supabase에서 테이블 생성 후 사용)
+    }
+
     alert('✅ 저장 완료! 장부가 갱신됩니다.');
     setManualEdits({}); // 수정사항 초기화
     loadAllData();
@@ -573,6 +702,11 @@ export default function RealDbTower() {
       .from('monthly_budgets')
       .delete()
       .neq('id', '00000000-0000-0000-0000-000000000000');
+    try {
+      await supabase.from('cash_balance_snapshots').delete().neq('date', '1970-01-01');
+    } catch {
+      // 테이블이 없을 수 있음
+    }
     alert('초기화됨');
     loadAllData();
     setIsSaving(false);
@@ -639,6 +773,48 @@ export default function RealDbTower() {
     return list;
   }, [dbHistory.records, historyFilterMonth, historyFilterAsset]);
 
+  /** 기록이 있는 날짜 목록 (내림차순) */
+  const recordDates = useMemo(() => {
+    const set = new Set<string>();
+    dbHistory.records.forEach((r) => {
+      const d = (r as { date?: string }).date;
+      if (d) set.add(d.substring(0, 10));
+    });
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [dbHistory.records]);
+
+  const handleToggleDeleteDate = useCallback((date: string) => {
+    setDeleteByDateSelected((prev) =>
+      prev.includes(date) ? prev.filter((d) => d !== date) : [...prev, date],
+    );
+  }, []);
+
+  const handleDeleteByDateConfirm = useCallback(async () => {
+    if (deleteByDatePassword !== RESET_DB_PASSWORD) {
+      alert('비밀번호가 올바르지 않습니다.');
+      return;
+    }
+    if (deleteByDateSelected.length === 0) return;
+    setIsDeletingByDate(true);
+    try {
+      for (const d of deleteByDateSelected) {
+        await supabase.from('investment_records').delete().eq('date', d);
+        try {
+          await supabase.from('cash_balance_snapshots').delete().eq('date', d);
+        } catch {
+          // 테이블 없을 수 있음
+        }
+      }
+      alert(`✅ ${deleteByDateSelected.length}일 기록이 삭제되었습니다.`);
+      setShowDeleteByDateModal(false);
+      setDeleteByDateSelected([]);
+      setDeleteByDatePassword('');
+      loadAllData();
+    } finally {
+      setIsDeletingByDate(false);
+    }
+  }, [deleteByDatePassword, deleteByDateSelected]);
+
   if (loading || !myAccount || !buyPlan) return <LoadingScreen />;
 
   const {
@@ -651,13 +827,7 @@ export default function RealDbTower() {
     currentExchangeRate,
     currentPriceMap,
   } = myAccount;
-  const {
-    guide,
-    thisMonthResidue,
-    totalExpectedSpend,
-    cmaMonthlyInterest,
-    cmaBalanceForInterest,
-  } = buyPlan;
+  const { guide, thisMonthResidue, totalExpectedSpend } = buyPlan;
   const formatNum = (n: number) => Math.floor(n).toLocaleString();
   const formatDec = (n: number) =>
     n.toLocaleString(undefined, {
@@ -690,6 +860,7 @@ export default function RealDbTower() {
             onRefreshPrices={loadAllData}
             isRefreshingPrice={isRefreshingPrice}
             onOpenResetDb={() => setShowResetPasswordModal(true)}
+            onOpenDeleteByDate={() => setShowDeleteByDateModal(true)}
             totalInvested={totalInvested}
             totalAsset={totalAsset}
             totalRoi={totalRoi}
@@ -715,6 +886,10 @@ export default function RealDbTower() {
           currentExchangeRate={currentExchangeRate}
           totalExpectedSpend={totalExpectedSpend}
           currentCashBalance={currentCashBalance}
+          cumulativeCmaInterestToToday={
+            myAccount.cumulativeCmaInterestToToday ?? 0
+          }
+          cmaRate={cmaRate}
           isPanicBuyMode={isPanicBuyMode}
           setIsPanicBuyMode={setIsPanicBuyMode}
           formatNum={formatNum}
@@ -731,9 +906,6 @@ export default function RealDbTower() {
           manualEdits={manualEdits}
           setManualEdits={setManualEdits}
           thisMonthResidue={thisMonthResidue}
-          cmaMonthlyInterest={cmaMonthlyInterest}
-          cmaBalanceForInterest={cmaBalanceForInterest}
-          cmaRate={cmaRate}
           formatNum={formatNum}
         />
 
@@ -825,6 +997,22 @@ export default function RealDbTower() {
           onConfirm={onConfirmPanicBuySave}
           isSaving={isSaving}
           variant="panic-save"
+        />
+
+        <DeleteByDateModal
+          open={showDeleteByDateModal}
+          onClose={() => {
+            setShowDeleteByDateModal(false);
+            setDeleteByDateSelected([]);
+            setDeleteByDatePassword('');
+          }}
+          recordDates={recordDates}
+          selectedDates={deleteByDateSelected}
+          onToggleDate={handleToggleDeleteDate}
+          passwordValue={deleteByDatePassword}
+          onPasswordChange={setDeleteByDatePassword}
+          onConfirm={handleDeleteByDateConfirm}
+          isDeleting={isDeletingByDate}
         />
 
         <SettingsModal

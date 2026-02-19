@@ -3,13 +3,20 @@
 import React from 'react';
 import { Trash2, X } from 'lucide-react';
 
+export type RecordBatchItem = {
+  key: string;
+  date: string;
+  batchId: string | null;
+  count: number;
+};
+
 type DeleteByDateModalProps = {
   open: boolean;
   onClose: () => void;
-  /** 기록이 있는 날짜 목록 (YYYY-MM-DD, 내림차순 권장) */
-  recordDates: string[];
-  selectedDates: string[];
-  onToggleDate: (date: string) => void;
+  /** 날짜+배치별 기록 (같은 날 여러 번 저장한 것을 차수별로 표시) */
+  recordBatches: RecordBatchItem[];
+  selectedKeys: string[];
+  onToggleBatch: (key: string) => void;
   passwordValue: string;
   onPasswordChange: (v: string) => void;
   onConfirm: () => void;
@@ -19,14 +26,21 @@ type DeleteByDateModalProps = {
 export function DeleteByDateModal({
   open,
   onClose,
-  recordDates,
-  selectedDates,
-  onToggleDate,
+  recordBatches,
+  selectedKeys,
+  onToggleBatch,
   passwordValue,
   onPasswordChange,
   onConfirm,
   isDeleting,
 }: DeleteByDateModalProps) {
+  const dateCount: Record<string, number> = {};
+  const batchLabels = recordBatches.map((b) => {
+    dateCount[b.date] = (dateCount[b.date] ?? 0) + 1;
+    const nth = dateCount[b.date];
+    return { ...b, nth };
+  });
+
   if (!open) return null;
 
   return (
@@ -40,7 +54,7 @@ export function DeleteByDateModal({
       >
         <div className="p-6 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
           <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            <Trash2 size={20} className="text-rose-500" /> 날짜별 기록 삭제
+            <Trash2 size={20} className="text-rose-500" /> 기록 삭제
           </h3>
           <button
             type="button"
@@ -51,30 +65,32 @@ export function DeleteByDateModal({
           </button>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 px-6 pt-3">
-          삭제할 기록의 날짜를 선택한 뒤 비밀번호를 입력하세요. 해당 날짜의 매수 기록만 삭제됩니다.
+          같은 날 여러 번 저장한 경우 차수별로 나뉩니다. 삭제할 차수만 선택한 뒤 비밀번호를 입력하세요.
         </p>
         <div className="px-6 py-3 overflow-y-auto flex-1">
           <div className="flex flex-wrap gap-2">
-            {recordDates.map((d) => (
+            {batchLabels.map((b) => (
               <label
-                key={d}
+                key={b.key}
                 className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-bold cursor-pointer transition-colors ${
-                  selectedDates.includes(d)
+                  selectedKeys.includes(b.key)
                     ? 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-300'
                     : 'bg-slate-50 dark:bg-slate-700/40 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300'
                 }`}
               >
                 <input
                   type="checkbox"
-                  checked={selectedDates.includes(d)}
-                  onChange={() => onToggleDate(d)}
+                  checked={selectedKeys.includes(b.key)}
+                  onChange={() => onToggleBatch(b.key)}
                   className="sr-only"
                 />
-                <span>{d}</span>
+                <span>
+                  {b.date} ({b.nth}차, {b.count}건)
+                </span>
               </label>
             ))}
           </div>
-          {recordDates.length === 0 && (
+          {recordBatches.length === 0 && (
             <p className="text-sm text-slate-400 py-2">삭제할 수 있는 기록이 없습니다.</p>
           )}
         </div>
@@ -101,10 +117,10 @@ export function DeleteByDateModal({
             <button
               type="button"
               onClick={onConfirm}
-              disabled={isDeleting || selectedDates.length === 0}
+              disabled={isDeleting || selectedKeys.length === 0}
               className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm hover:bg-rose-700 disabled:opacity-50"
             >
-              {isDeleting ? '삭제 중…' : `선택 삭제 (${selectedDates.length}일)`}
+              {isDeleting ? '삭제 중…' : `선택 삭제 (${selectedKeys.length}개)`}
             </button>
           </div>
         </div>

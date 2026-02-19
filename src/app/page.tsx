@@ -646,7 +646,8 @@ export default function RealDbTower() {
         .insert({ month_date: todayStr, amount: inputBudget });
     }
 
-    // B. 매수 기록
+    // B. 매수 기록 (같은 날 여러 번 저장해도 차수별로 구분해 삭제 가능하도록 batch_id 부여)
+    const batchId = crypto.randomUUID();
     const records = Object.keys(buyPlan.guide).map((k) => ({
       date: todayStr,
       asset_key: k,
@@ -654,6 +655,7 @@ export default function RealDbTower() {
       quantity: buyPlan.guide[k].qty,
       amount: buyPlan.guide[k].spent,
       is_panic_buy: isPanicBuyMode,
+      batch_id: batchId,
     }));
     const validRecords = records.filter((r) => r.quantity > 0);
     if (validRecords.length > 0)
@@ -773,19 +775,31 @@ export default function RealDbTower() {
     return list;
   }, [dbHistory.records, historyFilterMonth, historyFilterAsset]);
 
-  /** 기록이 있는 날짜 목록 (내림차순) */
-  const recordDates = useMemo(() => {
-    const set = new Set<string>();
+  /** 날짜+배치별로 묶은 기록 목록 (같은 날 여러 번 저장한 것을 차수별로 선택 삭제용) */
+  const recordBatches = useMemo(() => {
+    const map = new Map<string, { date: string; batchId: string | null; count: number }>();
     dbHistory.records.forEach((r) => {
-      const d = (r as { date?: string }).date;
-      if (d) set.add(d.substring(0, 10));
+      const rec = r as { date?: string; batch_id?: string | null };
+      const d = rec.date ? rec.date.substring(0, 10) : '';
+      if (!d) return;
+      const bid = rec.batch_id ?? null;
+      const key = `${d}|${bid ?? 'null'}`;
+      const cur = map.get(key);
+      if (cur) cur.count += 1;
+      else map.set(key, { date: d, batchId: bid, count: 1 });
     });
-    return Array.from(set).sort((a, b) => b.localeCompare(a));
+    return Array.from(map.entries())
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => {
+        const c = b.date.localeCompare(a.date);
+        if (c !== 0) return c;
+        return (a.batchId ?? '').localeCompare(b.batchId ?? '');
+      });
   }, [dbHistory.records]);
 
-  const handleToggleDeleteDate = useCallback((date: string) => {
+  const handleToggleDeleteBatch = useCallback((key: string) => {
     setDeleteByDateSelected((prev) =>
-      prev.includes(date) ? prev.filter((d) => d !== date) : [...prev, date],
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
     );
   }, []);
 
@@ -797,15 +811,24 @@ export default function RealDbTower() {
     if (deleteByDateSelected.length === 0) return;
     setIsDeletingByDate(true);
     try {
-      for (const d of deleteByDateSelected) {
-        await supabase.from('investment_records').delete().eq('date', d);
-        try {
-          await supabase.from('cash_balance_snapshots').delete().eq('date', d);
-        } catch {
-          // 테이블 없을 수 있음
+      for (const key of deleteByDateSelected) {
+        const [date, batchIdPart] = key.split('|');
+        const batchId = batchIdPart === 'null' ? null : batchIdPart;
+        if (batchId === null) {
+          await supabase
+            .from('investment_records')
+            .delete()
+            .eq('date', date)
+            .is('batch_id', null);
+        } else {
+          await supabase
+            .from('investment_records')
+            .delete()
+            .eq('date', date)
+            .eq('batch_id', batchId);
         }
       }
-      alert(`✅ ${deleteByDateSelected.length}일 기록이 삭제되었습니다.`);
+      alert(`✅ 선택한 ${deleteByDateSelected.length}개 기록이 삭제되었습니다.`);
       setShowDeleteByDateModal(false);
       setDeleteByDateSelected([]);
       setDeleteByDatePassword('');
@@ -1006,9 +1029,9 @@ export default function RealDbTower() {
             setDeleteByDateSelected([]);
             setDeleteByDatePassword('');
           }}
-          recordDates={recordDates}
-          selectedDates={deleteByDateSelected}
-          onToggleDate={handleToggleDeleteDate}
+          recordBatches={recordBatches}
+          selectedKeys={deleteByDateSelected}
+          onToggleBatch={handleToggleDeleteBatch}
           passwordValue={deleteByDatePassword}
           onPasswordChange={setDeleteByDatePassword}
           onConfirm={handleDeleteByDateConfirm}

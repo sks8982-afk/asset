@@ -7,6 +7,7 @@ import { GoalSection } from './components/GoalSection';
 import { MonthlyOverviewSection } from './components/MonthlyOverviewSection';
 import { BuyGuideSection } from './components/BuyGuideSection';
 import { WeightChartSection } from './components/WeightChartSection';
+import { RebalancingGuideModal } from './components/RebalancingGuideModal';
 import { AssetGrowthSection } from './components/AssetGrowthSection';
 import { HoldingsDetailSection } from './components/HoldingsDetailSection';
 import { InvestmentHistorySection } from './components/InvestmentHistorySection';
@@ -27,6 +28,7 @@ const STORAGE_KEYS = {
   goalRoiShown: 'asset-tracker-goal-roi-shown',
   goalAssetShown: 'asset-tracker-goal-asset-shown',
   cmaRate: 'asset-tracker-cma-rate',
+  rebalancingAlertQuarter: 'asset-tracker-rebalancing-alert-quarter',
 };
 
 const COLORS = [
@@ -55,6 +57,22 @@ const DEFAULT_RATIOS: Record<string, number> = {
   cash: 1,
   btc: 1,
 };
+
+/** 비중 프리셋 (설정에서 한 번에 적용) */
+const RATIO_PRESETS: { name: string; ratios: Record<string, number> }[] = [
+  {
+    name: '공격형 (3:3:3:1:0.5:1)',
+    ratios: { tech10: 3, nasdaq: 3, snp: 3, gold: 1, cash: 0.5, btc: 1 },
+  },
+  {
+    name: '균형 (2:2:2:2:2:1)',
+    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, cash: 2, btc: 1 },
+  },
+  {
+    name: '보수형 (2:2:2:2:3:1)',
+    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, cash: 3, btc: 1 },
+  },
+];
 /** DB 초기화 시 필요한 비밀번호 (일단 하드코딩) */
 const RESET_DB_PASSWORD = '134679';
 
@@ -206,11 +224,15 @@ export default function RealDbTower() {
   );
   const [deleteByDatePassword, setDeleteByDatePassword] = useState('');
   const [isDeletingByDate, setIsDeletingByDate] = useState(false);
+  const [showRebalancingModal, setShowRebalancingModal] = useState(false);
+  const [showRebalancingQuarterBanner, setShowRebalancingQuarterBanner] =
+    useState(false);
   const [cmaRate, setCmaRate] = useState<number>(() => {
     if (typeof window === 'undefined') return 1.95;
     const v = localStorage.getItem(STORAGE_KEYS.cmaRate);
     return v ? Number(v) : 1.95;
   });
+  const [emergencyFundAmount, setEmergencyFundAmount] = useState<number>(300000);
 
   const getRatios = useCallback((): Record<string, number> => {
     return customRatios ?? DEFAULT_RATIOS;
@@ -278,6 +300,19 @@ export default function RealDbTower() {
       } catch {
         // 테이블 없을 수 있음
       }
+      let emergencyFund = 300000;
+      try {
+        const { data: settingsRow } = await supabase
+          .from('app_settings')
+          .select('emergency_fund_amount')
+          .eq('id', 1)
+          .maybeSingle();
+        if (settingsRow?.emergency_fund_amount != null)
+          emergencyFund = Number(settingsRow.emergency_fund_amount) || 300000;
+      } catch {
+        // 테이블 없을 수 있음
+      }
+      setEmergencyFundAmount(emergencyFund);
       setDbHistory({
         budgets: bData || [],
         records: rData || [],
@@ -289,6 +324,23 @@ export default function RealDbTower() {
       setIsRefreshingPrice(false);
     }
   };
+
+  const saveEmergencyFundToDb = useCallback(async (amount: number) => {
+    if (!Number.isFinite(amount) || amount < 0) return;
+    try {
+      await supabase.from('app_settings').upsert(
+        {
+          id: 1,
+          emergency_fund_amount: amount,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+      setEmergencyFundAmount(amount);
+    } catch {
+      setEmergencyFundAmount(amount);
+    }
+  }, []);
 
   useEffect(() => {
     loadAllData();
@@ -326,6 +378,17 @@ export default function RealDbTower() {
     if (Number.isFinite(cmaRate) && cmaRate >= 0)
       localStorage.setItem(STORAGE_KEYS.cmaRate, String(cmaRate));
   }, [cmaRate]);
+
+  useEffect(() => {
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    if (![3, 6, 9, 12].includes(m)) return;
+    const y = now.getFullYear();
+    const q = Math.ceil(m / 3);
+    const quarterKey = `${y}-Q${q}`;
+    const shown = localStorage.getItem(STORAGE_KEYS.rebalancingAlertQuarter);
+    if (shown !== quarterKey) setShowRebalancingQuarterBanner(true);
+  }, []);
 
   const saveCustomRatios = useCallback(
     (ratios: Record<string, number> | null) => {
@@ -642,6 +705,30 @@ export default function RealDbTower() {
       목표비중: Math.round((R[k] / ratioSum) * 1000) / 10,
       현재비중: Math.round(portfolio[k].weight * 100) / 100,
     }));
+  }, [myAccount, getRatios, ratioSum]);
+
+  /** 리밸런싱 가이드: 자산별 목표 금액 vs 현재 금액, 차이(매수/매도 제안) */
+  const rebalancingData = useMemo(() => {
+    if (!myAccount) return null;
+    const { portfolio, totalAsset, currentCashBalance } = myAccount;
+    const R = getRatios();
+    const items = Object.keys(NAMES).map((k) => {
+      const targetWeightPct = (R[k] / ratioSum) * 100;
+      const targetAmount = totalAsset * (targetWeightPct / 100);
+      const currentAmount =
+        k === 'cash' ? currentCashBalance : (portfolio[k]?.val ?? 0);
+      const diff = targetAmount - currentAmount;
+      return {
+        key: k,
+        name: NAMES[k],
+        targetWeight: Math.round(targetWeightPct * 10) / 10,
+        currentWeight: Math.round((portfolio[k]?.weight ?? 0) * 1000) / 10,
+        targetAmount,
+        currentAmount,
+        diff,
+      };
+    });
+    return { totalAsset, items };
   }, [myAccount, getRatios, ratioSum]);
 
   useEffect(() => {
@@ -1065,6 +1152,7 @@ export default function RealDbTower() {
             myAccount.cumulativeCmaInterestToToday ?? 0
           }
           cmaRate={cmaRate}
+          emergencyFundAmount={emergencyFundAmount}
           isPanicBuyMode={isPanicBuyMode}
           setIsPanicBuyMode={setIsPanicBuyMode}
           formatNum={formatNum}
@@ -1094,10 +1182,46 @@ export default function RealDbTower() {
           currentPriceMap={currentPriceMap}
         />
 
+        {showRebalancingQuarterBanner && (
+          <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl border border-amber-200 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20">
+            <p className="text-sm font-bold text-amber-800 dark:text-amber-200">
+              이번 분기 리밸런싱을 고려해 보세요.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const now = new Date();
+                const m = now.getMonth() + 1;
+                const y = now.getFullYear();
+                const q = Math.ceil(m / 3);
+                localStorage.setItem(
+                  STORAGE_KEYS.rebalancingAlertQuarter,
+                  `${y}-Q${q}`
+                );
+                setShowRebalancingQuarterBanner(false);
+                setShowRebalancingModal(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700"
+            >
+              리밸런싱 가이드 보기
+            </button>
+          </div>
+        )}
         <WeightChartSection
           weightChartData={weightChartData}
           darkMode={darkMode}
+          onOpenRebalancing={() => setShowRebalancingModal(true)}
         />
+        {rebalancingData && (
+          <RebalancingGuideModal
+            open={showRebalancingModal}
+            onClose={() => setShowRebalancingModal(false)}
+            totalAsset={rebalancingData.totalAsset}
+            items={rebalancingData.items}
+            formatNum={formatNum}
+            darkMode={darkMode}
+          />
+        )}
 
         {/* 3. 보유 자산 현황 (DB) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1193,6 +1317,7 @@ export default function RealDbTower() {
         <SettingsModal
           open={showSettings}
           onClose={() => setShowSettings(false)}
+          storageKeyBudget={STORAGE_KEYS.budget}
           inputBudget={inputBudget}
           setInputBudget={setInputBudget}
           customRatios={customRatios}
@@ -1201,9 +1326,13 @@ export default function RealDbTower() {
           defaultRatios={DEFAULT_RATIOS}
           storageKeyRatios={STORAGE_KEYS.ratios}
           onResetToDefault={() => saveCustomRatios(null)}
+          ratioPresets={RATIO_PRESETS}
           cmaRate={cmaRate}
           setCmaRate={setCmaRate}
           storageKeyCmaRate={STORAGE_KEYS.cmaRate}
+          emergencyFundAmount={emergencyFundAmount}
+          setEmergencyFundAmount={setEmergencyFundAmount}
+          saveEmergencyFundToDb={saveEmergencyFundToDb}
         />
       </div>
     </div>

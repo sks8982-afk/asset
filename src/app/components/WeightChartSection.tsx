@@ -11,7 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { Layers } from 'lucide-react';
+import { Layers, Scale } from 'lucide-react';
 
 export type WeightChartDataPoint = {
   name: string;
@@ -23,18 +23,32 @@ export type WeightChartDataPoint = {
 type WeightChartSectionProps = {
   weightChartData: WeightChartDataPoint[];
   darkMode: boolean;
+  onOpenRebalancing?: () => void;
 };
 
 export function WeightChartSection({
   weightChartData,
   darkMode,
+  onOpenRebalancing,
 }: WeightChartSectionProps) {
   return (
     <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-sm">
-      <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-6 leading-none text-slate-700 dark:text-slate-200">
-        <Layers size={18} />
-        목표 vs 현재 비중 (%)
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 leading-none text-slate-700 dark:text-slate-200">
+          <Layers size={18} />
+          목표 vs 현재 비중 (%)
+        </h2>
+        {onOpenRebalancing && (
+          <button
+            type="button"
+            onClick={onOpenRebalancing}
+            className="px-4 py-2 rounded-2xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <Scale size={14} />
+            리밸런싱 가이드
+          </button>
+        )}
+      </div>
       <div className="h-[280px] w-full overflow-x-auto">
         <ResponsiveContainer width="100%" height="100%" minWidth={400}>
           <BarChart

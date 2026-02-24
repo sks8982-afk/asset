@@ -13,6 +13,7 @@ type MonthlyOverviewSectionProps = {
   currentCashBalance: number;
   cumulativeCmaInterestToToday: number;
   cmaRate: number;
+  emergencyFundAmount: number;
   isPanicBuyMode: boolean;
   setIsPanicBuyMode: (value: boolean | ((prev: boolean) => boolean)) => void;
   formatNum: (n: number) => string;
@@ -27,6 +28,7 @@ export function MonthlyOverviewSection({
   currentCashBalance,
   cumulativeCmaInterestToToday,
   cmaRate,
+  emergencyFundAmount,
   isPanicBuyMode,
   setIsPanicBuyMode,
   formatNum,
@@ -35,6 +37,11 @@ export function MonthlyOverviewSection({
   const hasCurrentMonthBudget = dbHistoryBudgets.some((b) =>
     b.month_date.startsWith(currentYearMonth)
   );
+  const effectiveBalance = currentCashBalance + cumulativeCmaInterestToToday;
+  const investableAmount =
+    emergencyFundAmount > 0
+      ? Math.max(0, effectiveBalance - emergencyFundAmount)
+      : effectiveBalance;
 
   return (
     <div className="flex flex-col md:flex-row gap-4">
@@ -75,21 +82,29 @@ export function MonthlyOverviewSection({
           </p>
           <p
             className={`text-xl font-black flex items-center gap-1 justify-end ${
-              currentCashBalance < 0
+              effectiveBalance < 0
                 ? 'text-rose-500'
                 : 'text-slate-700 dark:text-slate-200'
             }`}
           >
-            {formatNum(currentCashBalance)}원
+            {formatNum(effectiveBalance)}원
           </p>
           {cumulativeCmaInterestToToday > 0 && (
-            <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-1">
-              + 오늘까지 CMA 누적 이자: {formatNum(cumulativeCmaInterestToToday)}원
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              원금 {formatNum(currentCashBalance)}원 + CMA 누적 이자 {formatNum(cumulativeCmaInterestToToday)}원
             </p>
           )}
           {cmaRate > 0 && (
             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
               연 {cmaRate}%(세전) 일별 반영
+            </p>
+          )}
+          {emergencyFundAmount > 0 && investableAmount !== effectiveBalance && (
+            <p className="text-xs font-bold text-blue-600 dark:text-blue-400 mt-1.5">
+              투자 가능: {formatNum(investableAmount)}원
+              <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400 ml-1">
+                (비상금 제외)
+              </span>
             </p>
           )}
         </div>

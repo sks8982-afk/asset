@@ -85,6 +85,24 @@ function getRecordAmount(r: {
   return Number(v ?? 0);
 }
 
+/** 기록의 유효 수량: amount_override가 있으면 (amount_override / price) 기준 수량, 없으면 quantity 그대로 */
+function getRecordQty(r: {
+  quantity?: number | string;
+  price?: number | string;
+  amount_override?: number | null;
+}): number {
+  const baseQty = Number(r?.quantity ?? 0);
+  const override = r?.amount_override;
+  const price = Number(r?.price ?? 0);
+  if (override == null || !Number.isFinite(override) || override <= 0) {
+    return baseQty;
+  }
+  if (!price || !Number.isFinite(price) || price <= 0) {
+    return baseQty;
+  }
+  return Number(override) / price;
+}
+
 /** 특정 날짜(YYYY-MM-DD) 기준 CMA 잔액: 누적 입금 - 누적 매수 */
 function getCashBalanceOnDate(
   dateStr: string,
@@ -458,7 +476,7 @@ export default function RealDbTower() {
 
     dbHistory.records.forEach((r) => {
       if (portfolio[r.asset_key]) {
-        portfolio[r.asset_key].qty += Number(r.quantity);
+        portfolio[r.asset_key].qty += getRecordQty(r);
         portfolio[r.asset_key].cost += getRecordAmount(r);
       }
     });
@@ -518,7 +536,7 @@ export default function RealDbTower() {
         if (k === 'cash') return;
         const assetRecords = recordsUntilNow.filter((r) => r.asset_key === k);
         const qty = assetRecords.reduce(
-          (acc, cur) => acc + Number(cur.quantity),
+          (acc, cur) => acc + getRecordQty(cur),
           0,
         );
         const cost = assetRecords.reduce(

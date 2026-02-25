@@ -129,7 +129,12 @@ export function InvestmentHistorySection({
                       </td>
                       <td className="px-3 py-2 text-right">
                         {r.asset_key === 'btc'
-                          ? formatDec(Number(r.quantity))
+                          ? formatDec(
+                              Number(
+                                (r.amount_override ?? r.amount ?? 0) /
+                                  Number(r.price || 1),
+                              ),
+                            )
                           : formatNum(Number(r.quantity))}
                       </td>
                       <td className="px-3 py-2 text-right">

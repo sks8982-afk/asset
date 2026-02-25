@@ -77,7 +77,10 @@ const RATIO_PRESETS: { name: string; ratios: Record<string, number> }[] = [
 const RESET_DB_PASSWORD = '134679';
 
 /** 기록의 유효 매수액: amount_override가 있으면 사용, 없으면 amount (비트코인 등 타 거래소 보정용) */
-function getRecordAmount(r: { amount?: number; amount_override?: number | null }): number {
+function getRecordAmount(r: {
+  amount?: number | string;
+  amount_override?: number | null;
+}): number {
   const v = r?.amount_override ?? r?.amount;
   return Number(v ?? 0);
 }
@@ -1293,7 +1296,6 @@ export default function RealDbTower() {
           names={NAMES}
           formatNum={formatNum}
           formatDec={formatDec}
-          getRecordAmount={getRecordAmount}
           onSaveBtcAmountOverride={saveBtcAmountOverride}
         />
 

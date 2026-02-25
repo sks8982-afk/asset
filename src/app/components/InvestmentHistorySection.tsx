@@ -26,7 +26,6 @@ type InvestmentHistorySectionProps = {
   names: Record<string, string>;
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
-  getRecordAmount: (r: InvestmentRecord) => number;
   onSaveBtcAmountOverride: (recordId: string, amountOverride: number | null) => Promise<void>;
 };
 
@@ -42,7 +41,6 @@ export function InvestmentHistorySection({
   names,
   formatNum,
   formatDec,
-  getRecordAmount,
   onSaveBtcAmountOverride,
 }: InvestmentHistorySectionProps) {
   const [editingBtcId, setEditingBtcId] = useState<string | null>(null);
@@ -112,7 +110,9 @@ export function InvestmentHistorySection({
               </thead>
               <tbody>
                 {records.map((r) => {
-                  const effectiveAmount = getRecordAmount(r);
+                  const effectiveAmount = Number(
+                    r.amount_override ?? r.amount ?? 0,
+                  );
                   const isBtc = r.asset_key === 'btc';
                   const isEditing = isBtc && r.id && editingBtcId === r.id;
                   return (

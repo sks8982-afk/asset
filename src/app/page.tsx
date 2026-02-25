@@ -76,11 +76,17 @@ const RATIO_PRESETS: { name: string; ratios: Record<string, number> }[] = [
 /** DB 초기화 시 필요한 비밀번호 (일단 하드코딩) */
 const RESET_DB_PASSWORD = '134679';
 
+/** 기록의 유효 매수액: amount_override가 있으면 사용, 없으면 amount (비트코인 등 타 거래소 보정용) */
+function getRecordAmount(r: { amount?: number; amount_override?: number | null }): number {
+  const v = r?.amount_override ?? r?.amount;
+  return Number(v ?? 0);
+}
+
 /** 특정 날짜(YYYY-MM-DD) 기준 CMA 잔액: 누적 입금 - 누적 매수 */
 function getCashBalanceOnDate(
   dateStr: string,
   budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number }[],
+  records: { date: string; amount?: number; amount_override?: number | null }[],
 ): number {
   const deposit =
     budgets
@@ -89,7 +95,7 @@ function getCashBalanceOnDate(
   const spent =
     records
       .filter((r) => (r.date || '').substring(0, 10) <= dateStr)
-      .reduce((acc, cur) => acc + Number(cur.amount ?? 0), 0) || 0;
+      .reduce((acc, cur) => acc + getRecordAmount(cur), 0) || 0;
   return Math.max(0, deposit - spent);
 }
 
@@ -97,7 +103,7 @@ function getCashBalanceOnDate(
 function getInterestAccruedInMonth(
   yearMonth: string,
   budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number }[],
+  records: { date: string; amount?: number; amount_override?: number | null }[],
   annualRatePct: number,
 ): number {
   const [y, m] = yearMonth.split('-').map(Number);
@@ -117,7 +123,7 @@ function getInterestAccruedInMonth(
 function getCumulativeInterestByMonths(
   monthStrings: string[],
   budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number }[],
+  records: { date: string; amount?: number; amount_override?: number | null }[],
   annualRatePct: number,
 ): number[] {
   const out: number[] = [];
@@ -132,7 +138,7 @@ function getCumulativeInterestByMonths(
 /** 현재월 1일 ~ 오늘까지 쌓인 이자 */
 function getInterestFromMonthStartToToday(
   budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number }[],
+  records: { date: string; amount?: number; amount_override?: number | null }[],
   annualRatePct: number,
 ): number {
   const now = new Date();
@@ -342,6 +348,30 @@ export default function RealDbTower() {
     }
   }, []);
 
+  const saveBtcAmountOverride = useCallback(
+    async (recordId: string, amountOverride: number | null) => {
+      try {
+        await supabase
+          .from('investment_records')
+          .update({
+            amount_override: amountOverride,
+          })
+          .eq('id', recordId);
+        setDbHistory((prev) => ({
+          ...prev,
+          records: prev.records.map((r) =>
+            r.id === recordId
+              ? { ...r, amount_override: amountOverride }
+              : r,
+          ),
+        }));
+      } catch {
+        alert('매수액 수정 저장에 실패했습니다.');
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     loadAllData();
     setCurrentMonth(new Date().getMonth() + 1);
@@ -412,7 +442,7 @@ export default function RealDbTower() {
       0,
     );
     const totalSpent = dbHistory.records.reduce(
-      (acc, cur) => acc + Number(cur.amount),
+      (acc, cur) => acc + getRecordAmount(cur),
       0,
     );
     const currentCashBalance = totalDeposit - totalSpent;
@@ -426,7 +456,7 @@ export default function RealDbTower() {
     dbHistory.records.forEach((r) => {
       if (portfolio[r.asset_key]) {
         portfolio[r.asset_key].qty += Number(r.quantity);
-        portfolio[r.asset_key].cost += Number(r.amount);
+        portfolio[r.asset_key].cost += getRecordAmount(r);
       }
     });
 
@@ -472,7 +502,7 @@ export default function RealDbTower() {
         (r) => r.date.substring(0, 7) <= date,
       );
       const spentUntilNow = recordsUntilNow.reduce(
-        (acc, cur) => acc + Number(cur.amount),
+        (acc, cur) => acc + getRecordAmount(cur),
         0,
       );
       const cashUntilNow = depositUntilNow - spentUntilNow;
@@ -489,7 +519,7 @@ export default function RealDbTower() {
           0,
         );
         const cost = assetRecords.reduce(
-          (acc, cur) => acc + Number(cur.amount),
+          (acc, cur) => acc + getRecordAmount(cur),
           0,
         );
         const value = qty * (mPoint[k] || 0);
@@ -825,7 +855,7 @@ export default function RealDbTower() {
       dbHistory.budgets.reduce((a, b) => a + Number(b.amount ?? 0), 0) +
       inputBudget;
     const totalSpentAfter =
-      dbHistory.records.reduce((a, r) => a + Number(r.amount ?? 0), 0) +
+      dbHistory.records.reduce((a, r) => a + getRecordAmount(r), 0) +
       validRecords.reduce((a, r) => a + Number(r.amount), 0);
     const balanceAfter = Math.max(0, totalDepositAfter - totalSpentAfter);
     try {
@@ -896,7 +926,7 @@ export default function RealDbTower() {
       rows.push(
         `매수,${r.date},${NAMES[r.asset_key] ?? r.asset_key},${r.price},${
           r.quantity
-        },${r.amount},${r.is_panic_buy ? '추매' : ''}`,
+        },${getRecordAmount(r)},${r.is_panic_buy ? '추매' : ''}`,
       );
     });
     rows.push('');
@@ -1002,7 +1032,7 @@ export default function RealDbTower() {
             batchDeposit = Number(firstRec.batch_deposit);
           } else {
             batchDeposit = batchRecords.reduce(
-              (sum, r) => sum + Number((r as { amount?: number }).amount ?? 0),
+              (sum, r) => sum + getRecordAmount(r as { amount?: number; amount_override?: number | null }),
               0,
             );
           }
@@ -1263,6 +1293,8 @@ export default function RealDbTower() {
           names={NAMES}
           formatNum={formatNum}
           formatDec={formatDec}
+          getRecordAmount={getRecordAmount}
+          onSaveBtcAmountOverride={saveBtcAmountOverride}
         />
 
         <DepositsHistorySection

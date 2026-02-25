@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { History, ChevronDown } from 'lucide-react';
 
 export type InvestmentRecord = {
@@ -10,6 +10,7 @@ export type InvestmentRecord = {
   price: number | string;
   quantity: number | string;
   amount: number | string;
+  amount_override?: number | null;
   is_panic_buy?: boolean;
 };
 
@@ -25,6 +26,8 @@ type InvestmentHistorySectionProps = {
   names: Record<string, string>;
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
+  getRecordAmount: (r: InvestmentRecord) => number;
+  onSaveBtcAmountOverride: (recordId: string, amountOverride: number | null) => Promise<void>;
 };
 
 export function InvestmentHistorySection({
@@ -39,7 +42,12 @@ export function InvestmentHistorySection({
   names,
   formatNum,
   formatDec,
+  getRecordAmount,
+  onSaveBtcAmountOverride,
 }: InvestmentHistorySectionProps) {
+  const [editingBtcId, setEditingBtcId] = useState<string | null>(null);
+  const [draftBtcAmount, setDraftBtcAmount] = useState<string>('');
+
   const monthOptions = Array.from(
     new Set(allRecords.map((r) => r.date.slice(0, 7)))
   )
@@ -103,31 +111,91 @@ export function InvestmentHistorySection({
                 </tr>
               </thead>
               <tbody>
-                {records.map((r) => (
-                  <tr
-                    key={r.id ?? r.date + r.asset_key + r.amount}
-                    className="border-t border-slate-100 dark:border-slate-600"
-                  >
-                    <td className="px-3 py-2">{r.date}</td>
-                    <td className="px-3 py-2">
-                      {names[r.asset_key] ?? r.asset_key}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatNum(Number(r.price))}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {r.asset_key === 'btc'
-                        ? formatDec(Number(r.quantity))
-                        : formatNum(Number(r.quantity))}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatNum(Number(r.amount))}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      {r.is_panic_buy ? '추매' : '-'}
-                    </td>
-                  </tr>
-                ))}
+                {records.map((r) => {
+                  const effectiveAmount = getRecordAmount(r);
+                  const isBtc = r.asset_key === 'btc';
+                  const isEditing = isBtc && r.id && editingBtcId === r.id;
+                  return (
+                    <tr
+                      key={r.id ?? r.date + r.asset_key + String(r.amount)}
+                      className="border-t border-slate-100 dark:border-slate-600"
+                    >
+                      <td className="px-3 py-2">{r.date}</td>
+                      <td className="px-3 py-2">
+                        {names[r.asset_key] ?? r.asset_key}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatNum(Number(r.price))}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {r.asset_key === 'btc'
+                          ? formatDec(Number(r.quantity))
+                          : formatNum(Number(r.quantity))}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {isBtc && r.id ? (
+                          isEditing ? (
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              className="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-right text-xs"
+                              value={draftBtcAmount}
+                              onChange={(e) =>
+                                setDraftBtcAmount(
+                                  e.target.value.replace(/[^0-9]/g, '')
+                                )
+                              }
+                              onBlur={async () => {
+                                const num =
+                                  draftBtcAmount === ''
+                                    ? null
+                                    : Number(draftBtcAmount) || 0;
+                                if (num !== null && num >= 0) {
+                                  await onSaveBtcAmountOverride(
+                                    r.id!,
+                                    num === 0 ? null : num
+                                  );
+                                }
+                                setEditingBtcId(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              autoFocus
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBtcId(r.id ?? null);
+                                setDraftBtcAmount(
+                                  String(
+                                    Math.round(
+                                      Number(
+                                        r.amount_override ?? r.amount ?? effectiveAmount
+                                      )
+                                    )
+                                  )
+                                );
+                              }}
+                              className="text-right underline decoration-dashed hover:decoration-solid text-blue-600 dark:text-blue-400"
+                              title="클릭하여 매수액 수정 (다른 거래소 보정)"
+                            >
+                              {formatNum(effectiveAmount)}
+                            </button>
+                          )
+                        ) : (
+                          formatNum(effectiveAmount)
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {r.is_panic_buy ? '추매' : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {records.length === 0 && (
                   <tr>
                     <td

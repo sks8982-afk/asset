@@ -85,9 +85,9 @@ export async function GET() {
     // 각 자산 실시간 시세 (종목별 실패 시 과거 종가로 보정)
     const getLastHistoryPrice = (k: string) => {
       const last = history[history.length - 1];
-      return last && typeof (last as Record<string, number>)[k] === 'number'
-        ? (last as Record<string, number>)[k]
-        : 0;
+      if (!last || k === 'd') return 0;
+      const v = (last as Record<string, unknown>)[k];
+      return typeof v === 'number' ? v : 0;
     };
     for (const [key, symbol] of Object.entries(symbols)) {
       if (key === 'ex') continue;

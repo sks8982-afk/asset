@@ -26,7 +26,8 @@ type InvestmentHistorySectionProps = {
   names: Record<string, string>;
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
-  onSaveBtcAmountOverride: (recordId: string, amountOverride: number | null) => Promise<void>;
+  /** 비트코인: 금액 수정 시 수량 재계산. 주식: 금액만 수정(수량 고정), 차액은 남은 현금에 반영 */
+  onSaveAmountOverride: (recordId: string, amountOverride: number | null) => Promise<void>;
 };
 
 export function InvestmentHistorySection({
@@ -41,10 +42,10 @@ export function InvestmentHistorySection({
   names,
   formatNum,
   formatDec,
-  onSaveBtcAmountOverride,
+  onSaveAmountOverride,
 }: InvestmentHistorySectionProps) {
-  const [editingBtcId, setEditingBtcId] = useState<string | null>(null);
-  const [draftBtcAmount, setDraftBtcAmount] = useState<string>('');
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+  const [draftAmount, setDraftAmount] = useState<string>('');
 
   const monthOptions = Array.from(
     new Set(allRecords.map((r) => r.date.slice(0, 7)))
@@ -114,7 +115,8 @@ export function InvestmentHistorySection({
                     r.amount_override ?? r.amount ?? 0,
                   );
                   const isBtc = r.asset_key === 'btc';
-                  const isEditing = isBtc && r.id && editingBtcId === r.id;
+                  const canEditAmount = Boolean(r.id);
+                  const isEditing = canEditAmount && editingRecordId === r.id;
                   return (
                     <tr
                       key={r.id ?? r.date + r.asset_key + String(r.amount)}
@@ -136,30 +138,30 @@ export function InvestmentHistorySection({
                           : formatNum(Number(r.quantity))}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {isBtc && r.id ? (
+                        {canEditAmount ? (
                           isEditing ? (
                             <input
                               type="text"
                               inputMode="numeric"
                               className="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-right text-xs"
-                              value={draftBtcAmount}
+                              value={draftAmount}
                               onChange={(e) =>
-                                setDraftBtcAmount(
+                                setDraftAmount(
                                   e.target.value.replace(/[^0-9]/g, '')
                                 )
                               }
                               onBlur={async () => {
                                 const num =
-                                  draftBtcAmount === ''
+                                  draftAmount === ''
                                     ? null
-                                    : Number(draftBtcAmount) || 0;
+                                    : Number(draftAmount) || 0;
                                 if (num !== null && num >= 0) {
-                                  await onSaveBtcAmountOverride(
+                                  await onSaveAmountOverride(
                                     r.id!,
                                     num === 0 ? null : num
                                   );
                                 }
-                                setEditingBtcId(null);
+                                setEditingRecordId(null);
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
@@ -172,8 +174,8 @@ export function InvestmentHistorySection({
                             <button
                               type="button"
                               onClick={() => {
-                                setEditingBtcId(r.id ?? null);
-                                setDraftBtcAmount(
+                                setEditingRecordId(r.id ?? null);
+                                setDraftAmount(
                                   String(
                                     Math.round(
                                       Number(
@@ -184,7 +186,9 @@ export function InvestmentHistorySection({
                                 );
                               }}
                               className="text-right underline decoration-dashed hover:decoration-solid text-blue-600 dark:text-blue-400"
-                              title="클릭하여 매수액 수정 (다른 거래소 보정)"
+                              title={isBtc
+                                ? '클릭하여 매수액 수정 (다른 거래소 보정, 수량 재계산)'
+                                : '클릭하여 매수액 수정 (실제 증권사 금액 반영, 수량 고정·차액은 남은 현금에 반영)'}
                             >
                               {formatNum(effectiveAmount)}
                             </button>

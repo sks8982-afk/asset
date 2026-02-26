@@ -103,13 +103,17 @@ function getRecordAmount(r: {
   return Number(v ?? 0);
 }
 
-/** 기록의 유효 수량: amount_override가 있으면 (amount_override / price) 기준 수량, 없으면 quantity 그대로 */
+/** 기록의 유효 수량: 비트코인은 amount_override 있으면 (amount_override/price), 없으면 quantity. 주식은 항상 quantity(수량 고정, 금액만 보정) */
 function getRecordQty(r: {
+  asset_key?: string;
   quantity?: number | string;
   price?: number | string;
   amount_override?: number | null;
 }): number {
   const baseQty = Number(r?.quantity ?? 0);
+  if (r?.asset_key !== 'btc') {
+    return baseQty;
+  }
   const override = r?.amount_override;
   const price = Number(r?.price ?? 0);
   if (override == null || !Number.isFinite(override) || override <= 0) {
@@ -1336,7 +1340,7 @@ export default function RealDbTower() {
           names={NAMES}
           formatNum={formatNum}
           formatDec={formatDec}
-          onSaveBtcAmountOverride={saveBtcAmountOverride}
+          onSaveAmountOverride={saveBtcAmountOverride}
         />
 
         <DepositsHistorySection

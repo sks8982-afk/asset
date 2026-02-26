@@ -49,12 +49,13 @@ export function WeightChartSection({
           </button>
         )}
       </div>
-      <div className="h-[280px] w-full overflow-x-auto">
+      <div className="h-[340px] w-full overflow-x-auto">
         <ResponsiveContainer width="100%" height="100%" minWidth={400}>
           <BarChart
             data={weightChartData}
             layout="vertical"
-            margin={{ top: 4, right: 20, left: 70, bottom: 4 }}
+            margin={{ top: 8, right: 20, left: 100, bottom: 8 }}
+            barCategoryGap="12%"
           >
             <CartesianGrid
               strokeDasharray="3 3"
@@ -70,8 +71,9 @@ export function WeightChartSection({
             <YAxis
               type="category"
               dataKey="name"
-              width={65}
+              width={96}
               tick={{ fontSize: 10 }}
+              tickMargin={6}
             />
             <Tooltip
               formatter={(v: number | undefined) =>
@@ -89,7 +91,7 @@ export function WeightChartSection({
                 fontWeight: 700,
               }}
             />
-            <Legend />
+            <Legend wrapperStyle={{ paddingTop: 8 }} iconSize={10} iconGap={12} />
             <Bar
               dataKey="목표비중"
               fill="#94a3b8"

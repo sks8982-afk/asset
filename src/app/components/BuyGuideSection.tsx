@@ -21,6 +21,7 @@ export type BuyGuideSectionProps = {
   dbHistoryBudgets: BudgetItem[];
   guide: Record<string, GuideItem>;
   names: Record<string, string>;
+  assetGroups: { label: string; keys: string[] }[];
   manualEdits: Record<string, number>;
   setManualEdits: (value: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   thisMonthResidue: number;
@@ -35,6 +36,7 @@ export function BuyGuideSection({
   dbHistoryBudgets,
   guide,
   names,
+  assetGroups,
   manualEdits,
   setManualEdits,
   thisMonthResidue,
@@ -75,72 +77,85 @@ export function BuyGuideSection({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 relative z-10">
-        {Object.keys(guide).map((k) => (
-          <div
-            key={k}
-            className={`p-4 sm:p-6 rounded-[2rem] border transition-all ${
-              isPanicBuyMode && guide[k].drop <= -10
-                ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-700 ring-2 ring-rose-300 dark:ring-rose-600'
-                : 'bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-600'
-            }`}
-          >
-            <div className="flex justify-between items-start mb-4">
-              <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase leading-none">
-                {names[k]}
+      <div className="space-y-6 relative z-10">
+        {assetGroups.map((group) => {
+          const keysInGuide = group.keys.filter((k) => k in guide);
+          if (keysInGuide.length === 0) return null;
+          return (
+            <div key={group.label}>
+              <p className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 mb-3">
+                {group.label}
               </p>
-              <span
-                className={`text-[10px] font-bold ${
-                  guide[k].drop < 0
-                    ? 'text-rose-500'
-                    : 'text-emerald-500 dark:text-emerald-400'
-                }`}
-              >
-                {Math.abs(guide[k].drop).toFixed(1)}%{' '}
-                {guide[k].drop < 0 ? '▼ 전월비' : '▲ 전월비'}
-              </span>
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6">
+                {keysInGuide.map((k) => (
+                  <div
+                    key={k}
+                    className={`p-4 sm:p-6 rounded-[2rem] border transition-all ${
+                      isPanicBuyMode && guide[k].drop <= -10
+                        ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-700 ring-2 ring-rose-300 dark:ring-rose-600'
+                        : 'bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase leading-none">
+                        {names[k]}
+                      </p>
+                      <span
+                        className={`text-[10px] font-bold ${
+                          guide[k].drop < 0
+                            ? 'text-rose-500'
+                            : 'text-emerald-500 dark:text-emerald-400'
+                        }`}
+                      >
+                        {Math.abs(guide[k].drop).toFixed(1)}%{' '}
+                        {guide[k].drop < 0 ? '▼ 전월비' : '▲ 전월비'}
+                      </span>
+                    </div>
 
-            <div className="mb-2 relative group">
-              <div className="flex items-baseline gap-1">
-                <input
-                  type="number"
-                  step={k === 'btc' ? '0.000001' : '1'}
-                  value={Number.isFinite(guide[k].qty) ? guide[k].qty : 0}
-                  onChange={(e) =>
-                    setManualEdits({
-                      ...manualEdits,
-                      [k]: Number(e.target.value),
-                    })
-                  }
-                  className="bg-transparent border-b border-transparent group-hover:border-slate-300 dark:group-hover:border-slate-500 focus:border-blue-500 w-24 text-4xl font-black text-slate-900 dark:text-slate-100 p-0 outline-none transition-all"
-                />
-                <span className="text-sm font-bold text-slate-300 dark:text-slate-500">
-                  주
-                </span>
-                <Edit3
-                  size={12}
-                  className="text-slate-300 opacity-0 group-hover:opacity-100"
-                />
+                    <div className="mb-2 relative group">
+                      <div className="flex items-baseline gap-1">
+                        <input
+                          type="number"
+                          step={k === 'btc' ? '0.000001' : '1'}
+                          value={Number.isFinite(guide[k].qty) ? guide[k].qty : 0}
+                          onChange={(e) =>
+                            setManualEdits({
+                              ...manualEdits,
+                              [k]: Number(e.target.value),
+                            })
+                          }
+                          className="bg-transparent border-b border-transparent group-hover:border-slate-300 dark:group-hover:border-slate-500 focus:border-blue-500 w-24 text-4xl font-black text-slate-900 dark:text-slate-100 p-0 outline-none transition-all"
+                        />
+                        <span className="text-sm font-bold text-slate-300 dark:text-slate-500">
+                          주
+                        </span>
+                        <Edit3
+                          size={12}
+                          className="text-slate-300 opacity-0 group-hover:opacity-100"
+                        />
+                      </div>
+                      {isPanicBuyMode && guide[k].extraQty > 0 && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-xs font-bold text-slate-400">
+                            기본 {formatNum(guide[k].baseQty)}
+                          </span>
+                          <span className="text-xs font-black text-rose-500 animate-pulse">
+                            + 추가 {formatNum(guide[k].extraQty)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-4 leading-tight">
+                      예상 체결가: {formatNum(guide[k].price)}원<br />
+                      매수액: {formatNum(guide[k].spent)}원
+                    </p>
+                  </div>
+                ))}
               </div>
-              {isPanicBuyMode && guide[k].extraQty > 0 && (
-                <div className="flex items-center gap-1 mt-1">
-                  <span className="text-xs font-bold text-slate-400">
-                    기본 {formatNum(guide[k].baseQty)}
-                  </span>
-                  <span className="text-xs font-black text-rose-500 animate-pulse">
-                    + 추가 {formatNum(guide[k].extraQty)}
-                  </span>
-                </div>
-              )}
             </div>
-
-            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-4 leading-tight">
-              예상 체결가: {formatNum(guide[k].price)}원<br />
-              매수액: {formatNum(guide[k].spent)}원
-            </p>
-          </div>
-        ))}
+          );
+        })}
         <div className="bg-slate-900 dark:bg-slate-700 p-4 sm:p-6 rounded-[2.5rem] text-white flex flex-col justify-center shadow-xl">
           <p className="text-[10px] font-bold text-blue-400 uppercase mb-2 leading-none">
             이달의 잔여 현금 (CMA)

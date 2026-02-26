@@ -9,34 +9,41 @@ export async function GET() {
     const start = new Date();
     start.setFullYear(end.getFullYear() - 10);
 
-    // 테크TOP10·나스닥·S&P 주력, 금은·코인·현금
+    // 테크TOP10·나스닥·S&P·금은·KODEX 코스닥150·TIGER 반도체TOP10·삼성전자·비트코인·환율
     const symbols: Record<string, string> = {
       tech10: '381170.KS', // TIGER 미국테크TOP10 INDXX
       nasdaq: '133690.KS', // TIGER 미국나스닥100
-      snp: '360750.KS', // TIGER 미국S&P500
+      snp: '360750.KS', // TIGER 미국 S&P500
       gold: '139320.KS', // TIGER 금은선물(H)
+      kodex_kosdaq150: '229200.KS', // KODEX 코스닥150 (KOSPI 상장 ETF)
+      semiconductor_top10: '396500.KS', // TIGER 반도체TOP10
+      samsung: '005930.KS', // 삼성전자 (KOSPI)
       btc: 'BTC-USD', // 비트코인 (달러 기준)
       ex: 'KRW=X', // 환율
     };
 
     const fetchAsset = async (key: string, symbol: string) => {
-      const result = await yf.chart(symbol, {
-        period1: start,
-        period2: end,
-        interval: '1mo',
-      });
-      return {
-        key,
-        quotes: (result.quotes || [])
-          .filter(
-            (q: any): q is any =>
-              q && typeof q.close === 'number' && q.date instanceof Date
-          )
-          .map((q: any) => ({
-            d: q.date.toISOString().slice(0, 7),
-            p: q.close,
-          })),
-      };
+      try {
+        const result = await yf.chart(symbol, {
+          period1: start,
+          period2: end,
+          interval: '1mo',
+        });
+        return {
+          key,
+          quotes: (result.quotes || [])
+            .filter(
+              (q: { close?: number; date?: Date }): q is { close: number; date: Date } =>
+                q != null && typeof q.close === 'number' && q.date instanceof Date
+            )
+            .map((q) => ({
+              d: q.date.toISOString().slice(0, 7),
+              p: q.close,
+            })),
+        };
+      } catch {
+        return { key, quotes: [] };
+      }
     };
 
     const allData = await Promise.all(
@@ -56,6 +63,9 @@ export async function GET() {
           nasdaq: findP('nasdaq'),
           snp: findP('snp'),
           gold: findP('gold'),
+          kodex_kosdaq150: findP('kodex_kosdaq150'),
+          semiconductor_top10: findP('semiconductor_top10'),
+          samsung: findP('samsung'),
           btc: findP('btc') * ex, // 비트코인 원화 환산
           ex,
         };
@@ -72,16 +82,37 @@ export async function GET() {
         : history[history.length - 1]?.ex) || 1350;
     latest.ex = exLive;
 
-    // 각 자산 실시간 시세
+    // 각 자산 실시간 시세 (종목별 실패 시 과거 종가로 보정)
+    const getLastHistoryPrice = (k: string) => {
+      const last = history[history.length - 1];
+      return last && typeof (last as Record<string, number>)[k] === 'number'
+        ? (last as Record<string, number>)[k]
+        : 0;
+    };
     for (const [key, symbol] of Object.entries(symbols)) {
       if (key === 'ex') continue;
-      const q: any = await yf.quote(symbol);
-      const p =
-        q && typeof q.regularMarketPrice === 'number'
-          ? q.regularMarketPrice
-          : 0;
-      if (key === 'btc') latest.btc = p * exLive;
-      else latest[key] = p;
+      try {
+        const q = await yf.quote(symbol);
+        const p =
+          (q && typeof (q as { regularMarketPrice?: number }).regularMarketPrice === 'number'
+            ? (q as { regularMarketPrice: number }).regularMarketPrice
+            : null) ??
+          (q && typeof (q as { regularMarketOpen?: number }).regularMarketOpen === 'number'
+            ? (q as { regularMarketOpen: number }).regularMarketOpen
+            : null) ??
+          (q && typeof (q as { regularMarketPreviousClose?: number }).regularMarketPreviousClose === 'number'
+            ? (q as { regularMarketPreviousClose: number }).regularMarketPreviousClose
+            : null) ??
+          getLastHistoryPrice(key) ??
+          0;
+        if (key === 'btc') latest.btc = p * exLive;
+        else latest[key] = p;
+      } catch {
+        const fallback = getLastHistoryPrice(key);
+        // btc in history is already KRW; other keys are per-asset
+        if (key === 'btc') latest.btc = fallback;
+        else latest[key] = fallback;
+      }
     }
 
     return NextResponse.json({ history, latest });

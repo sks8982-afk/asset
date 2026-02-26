@@ -39,38 +39,53 @@ const COLORS = [
   '#94a3b8',
   '#10b981',
   '#f43f5e',
+  '#0ea5e9',
+  '#84cc16',
+  '#ec4899',
 ];
 const NAMES: Record<string, string> = {
-  tech10: '테크TOP10',
-  nasdaq: '나스닥100',
-  snp: 'S&P500',
-  gold: '금은선물(H)',
+  tech10: 'TIGER 미국테크TOP10 INDXX',
+  nasdaq: 'TIGER 미국나스닥100',
+  snp: 'TIGER 미국 S&P500',
+  gold: 'TIGER 금은선물(H)',
+  kodex_kosdaq150: 'KODEX 코스닥150',
+  semiconductor_top10: 'TIGER 반도체TOP10',
+  samsung: '삼성전자',
   cash: '현금(CMA)',
   btc: '비트코인',
 };
-// 테크TOP10 3, 나스닥 3, S&P 3, 금은·현금·비트코인 각 1 (합 12)
 const DEFAULT_RATIOS: Record<string, number> = {
   tech10: 3,
   nasdaq: 3,
   snp: 3,
   gold: 1,
+  kodex_kosdaq150: 1,
+  semiconductor_top10: 1,
+  samsung: 1,
   cash: 1,
   btc: 1,
 };
 
+/** 국내(국장) vs 해외(미장) 구분 — 화면에 섹션으로 표시 */
+const ASSET_MARKET_GROUPS: { label: string; keys: string[] }[] = [
+  { label: '국내(국장)', keys: ['samsung', 'kodex_kosdaq150', 'semiconductor_top10', 'gold'] },
+  { label: '해외(미장)', keys: ['tech10', 'nasdaq', 'snp'] },
+  { label: '기타', keys: ['cash', 'btc'] },
+];
+
 /** 비중 프리셋 (설정에서 한 번에 적용) */
 const RATIO_PRESETS: { name: string; ratios: Record<string, number> }[] = [
   {
-    name: '공격형 (3:3:3:1:0.5:1)',
-    ratios: { tech10: 3, nasdaq: 3, snp: 3, gold: 1, cash: 0.5, btc: 1 },
+    name: '공격형',
+    ratios: { tech10: 3, nasdaq: 3, snp: 3, gold: 1, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 0.5, btc: 1 },
   },
   {
-    name: '균형 (2:2:2:2:2:1)',
-    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, cash: 2, btc: 1 },
+    name: '균형',
+    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 2, btc: 1 },
   },
   {
-    name: '보수형 (2:2:2:2:3:1)',
-    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, cash: 3, btc: 1 },
+    name: '보수형',
+    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 3, btc: 1 },
   },
 ];
 /** DB 초기화 시 필요한 비밀번호 (일단 하드코딩) */
@@ -262,7 +277,7 @@ export default function RealDbTower() {
   const [emergencyFundAmount, setEmergencyFundAmount] = useState<number>(300000);
 
   const getRatios = useCallback((): Record<string, number> => {
-    return customRatios ?? DEFAULT_RATIOS;
+    return { ...DEFAULT_RATIOS, ...(customRatios ?? {}) };
   }, [customRatios]);
 
   const ratioSum = useMemo(() => {
@@ -748,14 +763,16 @@ export default function RealDbTower() {
 
   const weightChartData = useMemo(() => {
     if (!myAccount) return [];
-    const { portfolio, totalAsset } = myAccount;
+    const { portfolio } = myAccount;
     const R = getRatios();
-    return Object.keys(NAMES).map((k) => ({
-      name: NAMES[k],
-      key: k,
-      목표비중: Math.round((R[k] / ratioSum) * 1000) / 10,
-      현재비중: Math.round(portfolio[k].weight * 100) / 100,
-    }));
+    return ASSET_MARKET_GROUPS.flatMap((g) =>
+      g.keys.map((k) => ({
+        name: NAMES[k],
+        key: k,
+        목표비중: Math.round((R[k] / ratioSum) * 1000) / 10,
+        현재비중: Math.round((portfolio[k]?.weight ?? 0) * 100) / 100,
+      }))
+    );
   }, [myAccount, getRatios, ratioSum]);
 
   /** 리밸런싱 가이드: 자산별 목표 금액 vs 현재 금액, 차이(매수/매도 제안) */
@@ -763,7 +780,7 @@ export default function RealDbTower() {
     if (!myAccount) return null;
     const { portfolio, totalAsset, currentCashBalance } = myAccount;
     const R = getRatios();
-    const items = Object.keys(NAMES).map((k) => {
+    const items = ASSET_MARKET_GROUPS.flatMap((g) => g.keys).map((k) => {
       const targetWeightPct = (R[k] / ratioSum) * 100;
       const targetAmount = totalAsset * (targetWeightPct / 100);
       const currentAmount =
@@ -1217,6 +1234,7 @@ export default function RealDbTower() {
           dbHistoryBudgets={dbHistory.budgets}
           guide={guide}
           names={NAMES}
+          assetGroups={ASSET_MARKET_GROUPS}
           manualEdits={manualEdits}
           setManualEdits={setManualEdits}
           thisMonthResidue={thisMonthResidue}
@@ -1228,6 +1246,7 @@ export default function RealDbTower() {
           portfolio={portfolio}
           names={NAMES}
           colors={COLORS}
+          assetGroups={ASSET_MARKET_GROUPS}
           formatNum={formatNum}
           formatDec={formatDec}
           currentPriceMap={currentPriceMap}

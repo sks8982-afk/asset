@@ -91,7 +91,7 @@ export function WeightChartSection({
                 fontWeight: 700,
               }}
             />
-            <Legend wrapperStyle={{ paddingTop: 8 }} iconSize={10} iconGap={12} />
+            <Legend wrapperStyle={{ paddingTop: 8 }} />
             <Bar
               dataKey="목표비중"
               fill="#94a3b8"

@@ -33,12 +33,12 @@ export async function GET() {
           key,
           quotes: (result.quotes || [])
             .filter(
-              (q): q is { close: number; date: Date } =>
+              (q) =>
                 q != null && typeof q.close === 'number' && q.date instanceof Date
             )
             .map((q) => ({
               d: q.date.toISOString().slice(0, 7),
-              p: q.close,
+              p: q.close as number,
             })),
         };
       } catch {

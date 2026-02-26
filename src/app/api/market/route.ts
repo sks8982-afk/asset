@@ -33,7 +33,7 @@ export async function GET() {
           key,
           quotes: (result.quotes || [])
             .filter(
-              (q: { close?: number; date?: Date }): q is { close: number; date: Date } =>
+              (q): q is { close: number; date: Date } =>
                 q != null && typeof q.close === 'number' && q.date instanceof Date
             )
             .map((q) => ({

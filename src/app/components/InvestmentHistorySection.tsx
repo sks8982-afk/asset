@@ -26,7 +26,7 @@ type InvestmentHistorySectionProps = {
   names: Record<string, string>;
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
-  /** 비트코인: 금액 수정 시 수량 재계산. 주식: 금액만 수정(수량 고정), 차액은 남은 현금에 반영 */
+  /** 비트코인: 금액 수정 시 수량 재계산. 주식: 단가 수정 → 금액=단가×수량으로 저장, 차액은 남은 현금에 반영 */
   onSaveAmountOverride: (recordId: string, amountOverride: number | null) => Promise<void>;
 };
 
@@ -45,7 +45,8 @@ export function InvestmentHistorySection({
   onSaveAmountOverride,
 }: InvestmentHistorySectionProps) {
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
-  const [draftAmount, setDraftAmount] = useState<string>('');
+  /** BTC: 편집 중인 금액(숫자 문자열). 주식: 편집 중인 단가(숫자 문자열) */
+  const [draftValue, setDraftValue] = useState<string>('');
 
   const monthOptions = Array.from(
     new Set(allRecords.map((r) => r.date.slice(0, 7)))
@@ -114,9 +115,17 @@ export function InvestmentHistorySection({
                   const effectiveAmount = Number(
                     r.amount_override ?? r.amount ?? 0,
                   );
+                  const qtyNum = Number(r.quantity ?? 0);
                   const isBtc = r.asset_key === 'btc';
-                  const canEditAmount = Boolean(r.id);
-                  const isEditing = canEditAmount && editingRecordId === r.id;
+                  const canEditBtcAmount = isBtc && Boolean(r.id);
+                  const canEditStockPrice = !isBtc && Boolean(r.id) && qtyNum > 0;
+                  const effectivePriceStock =
+                    qtyNum > 0 ? effectiveAmount / qtyNum : Number(r.price ?? 0);
+                  const isEditing = editingRecordId === r.id;
+                  const isEditingBtcAmount =
+                    canEditBtcAmount && isEditing;
+                  const isEditingStockPrice =
+                    canEditStockPrice && isEditing;
                   return (
                     <tr
                       key={r.id ?? r.date + r.asset_key + String(r.amount)}
@@ -127,7 +136,66 @@ export function InvestmentHistorySection({
                         {names[r.asset_key] ?? r.asset_key}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {formatNum(Number(r.price))}
+                        {isBtc ? (
+                          formatNum(Number(r.price))
+                        ) : canEditStockPrice ? (
+                          isEditingStockPrice ? (
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              className="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-right text-xs"
+                              value={draftValue}
+                              onChange={(e) =>
+                                setDraftValue(
+                                  e.target.value.replace(/[^0-9]/g, '')
+                                )
+                              }
+                              onBlur={async () => {
+                                const priceNum =
+                                  draftValue === ''
+                                    ? null
+                                    : Number(draftValue) || 0;
+                                if (
+                                  priceNum !== null &&
+                                  priceNum >= 0 &&
+                                  qtyNum > 0
+                                ) {
+                                  await onSaveAmountOverride(
+                                    r.id!,
+                                    priceNum === 0 ? null : Math.round(priceNum * qtyNum)
+                                  );
+                                }
+                                setEditingRecordId(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              autoFocus
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingRecordId(r.id ?? null);
+                                setDraftValue(
+                                  String(Math.round(effectivePriceStock))
+                                );
+                              }}
+                              className="text-right underline decoration-dashed hover:decoration-solid text-blue-600 dark:text-blue-400"
+                              title="클릭하여 단가 수정 (실제 증권사 단가 반영, 금액=단가×수량·차액은 남은 현금에 반영)"
+                            >
+                              {formatNum(effectivePriceStock)}
+                            </button>
+                          )
+                        ) : (
+                          formatNum(
+                            r.amount_override != null
+                              ? effectivePriceStock
+                              : Number(r.price)
+                          )
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right">
                         {r.asset_key === 'btc'
@@ -138,23 +206,23 @@ export function InvestmentHistorySection({
                           : formatNum(Number(r.quantity))}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {canEditAmount ? (
-                          isEditing ? (
+                        {canEditBtcAmount ? (
+                          isEditingBtcAmount ? (
                             <input
                               type="text"
                               inputMode="numeric"
                               className="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-right text-xs"
-                              value={draftAmount}
+                              value={draftValue}
                               onChange={(e) =>
-                                setDraftAmount(
+                                setDraftValue(
                                   e.target.value.replace(/[^0-9]/g, '')
                                 )
                               }
                               onBlur={async () => {
                                 const num =
-                                  draftAmount === ''
+                                  draftValue === ''
                                     ? null
-                                    : Number(draftAmount) || 0;
+                                    : Number(draftValue) || 0;
                                 if (num !== null && num >= 0) {
                                   await onSaveAmountOverride(
                                     r.id!,
@@ -175,7 +243,7 @@ export function InvestmentHistorySection({
                               type="button"
                               onClick={() => {
                                 setEditingRecordId(r.id ?? null);
-                                setDraftAmount(
+                                setDraftValue(
                                   String(
                                     Math.round(
                                       Number(
@@ -186,9 +254,7 @@ export function InvestmentHistorySection({
                                 );
                               }}
                               className="text-right underline decoration-dashed hover:decoration-solid text-blue-600 dark:text-blue-400"
-                              title={isBtc
-                                ? '클릭하여 매수액 수정 (다른 거래소 보정, 수량 재계산)'
-                                : '클릭하여 매수액 수정 (실제 증권사 금액 반영, 수량 고정·차액은 남은 현금에 반영)'}
+                              title="클릭하여 매수액 수정 (다른 거래소 보정, 수량 재계산)"
                             >
                               {formatNum(effectiveAmount)}
                             </button>

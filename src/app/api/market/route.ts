@@ -9,12 +9,13 @@ export async function GET() {
     const start = new Date();
     start.setFullYear(end.getFullYear() - 10);
 
-    // 테크TOP10·나스닥·S&P·금은·KODEX 코스닥150·TIGER 반도체TOP10·삼성전자·비트코인·환율
+    // 테크TOP10·나스닥·S&P·금은·KODEX200·KODEX 코스닥150·TIGER 반도체TOP10·삼성전자·비트코인·환율
     const symbols: Record<string, string> = {
       tech10: '381170.KS', // TIGER 미국테크TOP10 INDXX
       nasdaq: '133690.KS', // TIGER 미국나스닥100
       snp: '360750.KS', // TIGER 미국 S&P500
       gold: '139320.KS', // TIGER 금은선물(H)
+      kodex200: '069500.KS', // KODEX 200 (KOSPI 200 추종)
       kodex_kosdaq150: '229200.KS', // KODEX 코스닥150 (KOSPI 상장 ETF)
       semiconductor_top10: '396500.KS', // TIGER 반도체TOP10
       samsung: '005930.KS', // 삼성전자 (KOSPI)
@@ -63,6 +64,7 @@ export async function GET() {
           nasdaq: findP('nasdaq'),
           snp: findP('snp'),
           gold: findP('gold'),
+          kodex200: findP('kodex200'),
           kodex_kosdaq150: findP('kodex_kosdaq150'),
           semiconductor_top10: findP('semiconductor_top10'),
           samsung: findP('samsung'),

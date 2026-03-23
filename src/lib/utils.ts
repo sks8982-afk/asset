@@ -1,5 +1,9 @@
 import type { InvestmentRecord, MonthlyBudget, TaxSimulation, DividendRecord } from './types';
-import { FOREIGN_ASSET_KEYS, FOREIGN_TAX_EXEMPTION, FOREIGN_TAX_RATE, DIVIDEND_TAX_RATE } from './constants';
+import type { IsaType } from './constants';
+import {
+  FOREIGN_TAX_EXEMPTION, FOREIGN_TAX_RATE, DIVIDEND_TAX_RATE,
+  ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, ISA_TAX_FREE_LIMIT, ISA_SEPARATED_TAX_RATE,
+} from './constants';
 
 /** 기록의 유효 매수액: amount_override가 있으면 사용, 없으면 amount */
 export function getRecordAmount(r: {
@@ -177,45 +181,82 @@ export function calculateRealizedPnl(
   return result;
 }
 
-/** 세금 시뮬레이션 계산 */
+/**
+ * 세금 시뮬레이션 계산 — 서민형 ISA 계좌 기반
+ *
+ * ISA 계좌 핵심 규칙:
+ * 1. ISA 대상 자산(국내 상장 ETF/주식)의 매매차익 + 배당을 모두 합산
+ * 2. **손익통산**: 이익에서 손실을 빼서 순이익 산출
+ * 3. 순이익 400만원(서민형)까지 비과세
+ * 4. 초과분은 9.9% 분리과세 (일반 15.4% 대비 유리)
+ * 5. BTC 등 ISA 불가 자산은 별도 과세 (250만원 공제 후 22%)
+ */
 export function calculateTaxSimulation(
   records: InvestmentRecord[],
   dividends: DividendRecord[],
   year?: number,
+  isaType: IsaType = 'common',
 ): TaxSimulation {
   const targetYear = year ?? new Date().getFullYear();
   const yearStr = String(targetYear);
 
-  const realizedPnl = calculateRealizedPnl(
-    records.filter((r) => r.date.startsWith(yearStr)),
-  );
+  const yearRecords = records.filter((r) => r.date.startsWith(yearStr));
+  const realizedPnl = calculateRealizedPnl(yearRecords);
 
-  // 해외주식 양도차익
-  const foreignGain = FOREIGN_ASSET_KEYS.reduce(
+  // ─── ISA 계좌 내 (손익통산) ───
+  // ISA 대상 자산의 이익과 손실을 각각 합산
+  let isaGains = 0;
+  let isaLosses = 0;
+  for (const key of ISA_ELIGIBLE_KEYS) {
+    const pnl = realizedPnl[key] ?? 0;
+    if (pnl > 0) isaGains += pnl;
+    else isaLosses += Math.abs(pnl);
+  }
+  // 손익통산: 이익 - 손실 = 순이익
+  const isaNetGain = Math.max(0, isaGains - isaLosses);
+
+  // ISA 내 배당 (ISA 대상 자산의 배당만)
+  const yearDividends = dividends.filter((d) => d.date.startsWith(yearStr));
+  const isaDividend = yearDividends
+    .filter((d) => ISA_ELIGIBLE_KEYS.includes(d.asset_key))
+    .reduce((sum, d) => sum + d.amount, 0);
+
+  // ISA 총 순이익 = 매매 순이익 + 배당
+  const isaTotalProfit = isaNetGain + isaDividend;
+
+  // ISA 비과세/과세 계산
+  const taxFreeLimit = ISA_TAX_FREE_LIMIT[isaType];
+  const isaTaxFreeAmount = Math.min(isaTotalProfit, taxFreeLimit);
+  const isaTaxableAmount = Math.max(0, isaTotalProfit - taxFreeLimit);
+  const isaTax = Math.round(isaTaxableAmount * ISA_SEPARATED_TAX_RATE);
+  const isaTaxFreeRemaining = Math.max(0, taxFreeLimit - isaTotalProfit);
+
+  // ISA 절세 효과: 일반과세였다면 냈을 세금 - ISA로 낸 세금
+  const taxWithoutIsa = Math.round(isaTotalProfit * DIVIDEND_TAX_RATE); // 일반이면 15.4%
+  const isaSavings = Math.max(0, taxWithoutIsa - isaTax);
+
+  // ─── ISA 밖 (BTC 등) ───
+  const btcGain = NON_ISA_KEYS.reduce(
     (sum, key) => sum + Math.max(0, realizedPnl[key] ?? 0),
     0,
   );
-  const foreignTaxBase = Math.max(0, foreignGain - FOREIGN_TAX_EXEMPTION);
-  const foreignTax = Math.round(foreignTaxBase * FOREIGN_TAX_RATE);
-
-  // 국내주식 양도차익 (대주주가 아니면 비과세이지만 참고용)
-  const domesticGain = Object.entries(realizedPnl)
-    .filter(([key]) => !FOREIGN_ASSET_KEYS.includes(key))
-    .reduce((sum, [, pnl]) => sum + Math.max(0, pnl), 0);
-
-  // 배당소득세
-  const yearDividends = dividends.filter((d) => d.date.startsWith(yearStr));
-  const totalDividendAmount = yearDividends.reduce((sum, d) => sum + d.amount, 0);
-  const dividendTax = Math.round(totalDividendAmount * DIVIDEND_TAX_RATE);
+  const btcTaxBase = Math.max(0, btcGain - FOREIGN_TAX_EXEMPTION);
+  const btcTax = Math.round(btcTaxBase * FOREIGN_TAX_RATE);
 
   return {
-    foreignGain,
-    foreignExemption: FOREIGN_TAX_EXEMPTION,
-    foreignTaxBase,
-    foreignTax,
-    domesticGain,
-    dividendTax,
-    totalEstimatedTax: foreignTax + dividendTax,
+    isaNetGain,
+    isaDividend,
+    isaTotalProfit,
+    isaTaxFreeLimit: taxFreeLimit,
+    isaTaxFreeAmount,
+    isaTaxableAmount,
+    isaTax,
+    isaTaxFreeRemaining,
+    btcGain,
+    btcTaxBase,
+    btcTax,
+    totalEstimatedTax: isaTax + btcTax,
+    isaSavings,
   };
 }
 

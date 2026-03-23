@@ -142,18 +142,35 @@ export type RebalancingItem = {
 
 /** 세금 시뮬레이션 결과 */
 export type TaxSimulation = {
-  /** 해외주식 양도차익 (원) */
-  foreignGain: number;
-  /** 공제액 (250만원) */
-  foreignExemption: number;
-  /** 과세표준 */
-  foreignTaxBase: number;
-  /** 예상 세금 (22%) */
-  foreignTax: number;
-  /** 국내주식 양도차익 */
-  domesticGain: number;
-  /** 배당소득세 */
-  dividendTax: number;
+  // ─── ISA 계좌 내 (손익통산 적용) ───
+  /** ISA 내 매매 순이익 (이익 - 손실) */
+  isaNetGain: number;
+  /** ISA 내 배당 수익 */
+  isaDividend: number;
+  /** ISA 내 총 순이익 (매매 + 배당) */
+  isaTotalProfit: number;
+  /** ISA 비과세 한도 */
+  isaTaxFreeLimit: number;
+  /** ISA 비과세 적용액 */
+  isaTaxFreeAmount: number;
+  /** ISA 분리과세 대상액 (초과분) */
+  isaTaxableAmount: number;
+  /** ISA 분리과세 (9.9%) */
+  isaTax: number;
+  /** ISA 비과세 잔여 한도 */
+  isaTaxFreeRemaining: number;
+
+  // ─── ISA 밖 (BTC 등) ───
+  /** BTC 양도차익 */
+  btcGain: number;
+  /** BTC 과세표준 (250만원 공제 후) */
+  btcTaxBase: number;
+  /** BTC 세금 (22%) */
+  btcTax: number;
+
+  // ─── 합산 ───
   /** 총 예상 세금 */
   totalEstimatedTax: number;
+  /** ISA 절세 효과 (일반과세 대비 절약액) */
+  isaSavings: number;
 };

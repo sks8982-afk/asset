@@ -1,6 +1,17 @@
 'use client';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import type { DbHistory, DividendRecord } from '@/lib/types';
+import {
+  STORAGE_KEYS, COLORS, NAMES, DEFAULT_RATIOS,
+  ASSET_MARKET_GROUPS, RATIO_PRESETS, RESET_DB_PASSWORD, FOREIGN_ASSET_KEYS,
+} from '@/lib/constants';
+import {
+  getRecordAmount, getRecordQty, filterBuyRecords, filterSellRecords,
+  getCumulativeInterestByMonths, getInterestFromMonthStartToToday,
+  formatNum, formatDec, calculateRealizedPnl, calculateTaxSimulation,
+  estimateGoalDate, calculateMDD,
+} from '@/lib/utils';
 import { HeaderSection } from './components/HeaderSection';
 import { HoldingsSummarySection } from './components/HoldingsSummarySection';
 import { GoalSection } from './components/GoalSection';
@@ -18,185 +29,11 @@ import { DeleteByDateModal } from './components/DeleteByDateModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GoalToastBar } from './components/GoalToastBar';
 import { LoadingScreen } from './components/LoadingScreen';
-
-const STORAGE_KEYS = {
-  dark: 'asset-tracker-dark',
-  ratios: 'asset-tracker-ratios',
-  budget: 'asset-tracker-budget',
-  goalRoi: 'asset-tracker-goal-roi',
-  goalAsset: 'asset-tracker-goal-asset',
-  goalRoiShown: 'asset-tracker-goal-roi-shown',
-  goalAssetShown: 'asset-tracker-goal-asset-shown',
-  cmaRate: 'asset-tracker-cma-rate',
-  rebalancingAlertQuarter: 'asset-tracker-rebalancing-alert-quarter',
-};
-
-const COLORS = [
-  '#3b82f6',
-  '#6366f1',
-  '#a855f7',
-  '#f59e0b',
-  '#94a3b8',
-  '#10b981',
-  '#f43f5e',
-  '#0ea5e9',
-  '#84cc16',
-  '#ec4899',
-  '#8b5cf6',
-];
-const NAMES: Record<string, string> = {
-  tech10: 'TIGER 미국테크TOP10 INDXX',
-  nasdaq: 'TIGER 미국나스닥100',
-  snp: 'TIGER 미국 S&P500',
-  gold: 'TIGER 금은선물(H)',
-  kodex200: 'KODEX 200',
-  kodex_kosdaq150: 'KODEX 코스닥150',
-  semiconductor_top10: 'TIGER 반도체TOP10',
-  samsung: '삼성전자',
-  cash: '현금(CMA)',
-  btc: '비트코인',
-};
-const DEFAULT_RATIOS: Record<string, number> = {
-  tech10: 3,
-  nasdaq: 3,
-  snp: 3,
-  gold: 1,
-  kodex200: 1,
-  kodex_kosdaq150: 1,
-  semiconductor_top10: 1,
-  samsung: 1,
-  cash: 1,
-  btc: 1,
-};
-
-/** 국내(국장) vs 해외(미장) 구분 — 화면에 섹션으로 표시 */
-const ASSET_MARKET_GROUPS: { label: string; keys: string[] }[] = [
-  { label: '국내(국장)', keys: ['samsung', 'kodex200', 'kodex_kosdaq150', 'semiconductor_top10', 'gold'] },
-  { label: '해외(미장)', keys: ['tech10', 'nasdaq', 'snp'] },
-  { label: '기타', keys: ['cash', 'btc'] },
-];
-
-/** 비중 프리셋 (설정에서 한 번에 적용) */
-const RATIO_PRESETS: { name: string; ratios: Record<string, number> }[] = [
-  {
-    name: '공격형',
-    ratios: { tech10: 3, nasdaq: 3, snp: 3, gold: 1, kodex200: 1, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 0.5, btc: 1 },
-  },
-  {
-    name: '균형',
-    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, kodex200: 1, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 2, btc: 1 },
-  },
-  {
-    name: '보수형',
-    ratios: { tech10: 2, nasdaq: 2, snp: 2, gold: 2, kodex200: 1, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 3, btc: 1 },
-  },
-];
-/** DB 초기화 시 필요한 비밀번호 (일단 하드코딩) */
-const RESET_DB_PASSWORD = '134679';
-
-/** 기록의 유효 매수액: amount_override가 있으면 사용, 없으면 amount (비트코인 등 타 거래소 보정용) */
-function getRecordAmount(r: {
-  amount?: number | string;
-  amount_override?: number | null;
-}): number {
-  const v = r?.amount_override ?? r?.amount;
-  return Number(v ?? 0);
-}
-
-/** 기록의 유효 수량: 비트코인은 amount_override 있으면 (amount_override/price), 없으면 quantity. 주식은 항상 quantity(수량 고정, 금액만 보정) */
-function getRecordQty(r: {
-  asset_key?: string;
-  quantity?: number | string;
-  price?: number | string;
-  amount_override?: number | null;
-}): number {
-  const baseQty = Number(r?.quantity ?? 0);
-  if (r?.asset_key !== 'btc') {
-    return baseQty;
-  }
-  const override = r?.amount_override;
-  const price = Number(r?.price ?? 0);
-  if (override == null || !Number.isFinite(override) || override <= 0) {
-    return baseQty;
-  }
-  if (!price || !Number.isFinite(price) || price <= 0) {
-    return baseQty;
-  }
-  return Number(override) / price;
-}
-
-/** 특정 날짜(YYYY-MM-DD) 기준 CMA 잔액: 누적 입금 - 누적 매수 */
-function getCashBalanceOnDate(
-  dateStr: string,
-  budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number; amount_override?: number | null }[],
-): number {
-  const deposit =
-    budgets
-      .filter((b) => (b.month_date || '').substring(0, 10) <= dateStr)
-      .reduce((acc, cur) => acc + Number(cur.amount ?? 0), 0) || 0;
-  const spent =
-    records
-      .filter((r) => (r.date || '').substring(0, 10) <= dateStr)
-      .reduce((acc, cur) => acc + getRecordAmount(cur), 0) || 0;
-  return Math.max(0, deposit - spent);
-}
-
-/** 해당 월(YYYY-MM) 동안 일별 잔액 기준으로 쌓인 CMA 이자 (연이자율 % 기준) */
-function getInterestAccruedInMonth(
-  yearMonth: string,
-  budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number; amount_override?: number | null }[],
-  annualRatePct: number,
-): number {
-  const [y, m] = yearMonth.split('-').map(Number);
-  if (!y || !m) return 0;
-  const lastDay = new Date(y, m, 0).getDate();
-  let interest = 0;
-  const dailyRate = annualRatePct / 100 / 365;
-  for (let d = 1; d <= lastDay; d++) {
-    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const balance = getCashBalanceOnDate(dateStr, budgets, records);
-    interest += balance * dailyRate;
-  }
-  return interest;
-}
-
-/** 월별 시점까지의 누적 CMA 이자 (marketData 순서의 월 배열 기준) */
-function getCumulativeInterestByMonths(
-  monthStrings: string[],
-  budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number; amount_override?: number | null }[],
-  annualRatePct: number,
-): number[] {
-  const out: number[] = [];
-  let cum = 0;
-  for (const ym of monthStrings) {
-    cum += getInterestAccruedInMonth(ym, budgets, records, annualRatePct);
-    out.push(cum);
-  }
-  return out;
-}
-
-/** 현재월 1일 ~ 오늘까지 쌓인 이자 */
-function getInterestFromMonthStartToToday(
-  budgets: { month_date: string; amount?: number }[],
-  records: { date: string; amount?: number; amount_override?: number | null }[],
-  annualRatePct: number,
-): number {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const today = now.getDate();
-  let interest = 0;
-  const dailyRate = annualRatePct / 100 / 365;
-  for (let d = 1; d <= today; d++) {
-    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const balance = getCashBalanceOnDate(dateStr, budgets, records);
-    interest += balance * dailyRate;
-  }
-  return interest;
-}
+import { SellRecordModal } from './components/SellRecordModal';
+import { DividendSection } from './components/DividendSection';
+import { TaxSimulationSection } from './components/TaxSimulationSection';
+import { GoalProjectionSection } from './components/GoalProjectionSection';
+import { ExchangeRateSection } from './components/ExchangeRateSection';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useState(() =>
@@ -206,19 +43,9 @@ export default function RealDbTower() {
   );
   const [marketData, setMarketData] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<any | null>(null);
-  const [dbHistory, setDbHistory] = useState<{
-    budgets: any[];
-    records: any[];
-    /** 회차별 총입금·매수합·통장잔고. 삭제 시 deposit 기준으로 정확히 되돌림 */
-    batchSummaries: {
-      batch_id: string;
-      date: string;
-      deposit: number;
-      total_spent: number;
-      remaining_cash: number;
-    }[];
-    snapshots: { date: string; balance: number }[];
-  }>({ budgets: [], records: [], batchSummaries: [], snapshots: [] });
+  const [dbHistory, setDbHistory] = useState<DbHistory>({
+    budgets: [], records: [], batchSummaries: [], snapshots: [], dividends: [],
+  });
   const [loading, setLoading] = useState(true);
   const [isPanicBuyMode, setIsPanicBuyMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -282,6 +109,15 @@ export default function RealDbTower() {
     return v ? Number(v) : 1.95;
   });
   const [emergencyFundAmount, setEmergencyFundAmount] = useState<number>(300000);
+  const [showSellModal, setShowSellModal] = useState(false);
+  const [rebalancingHistory, setRebalancingHistory] = useState<
+    { date: string; totalAsset: number; items: any[] }[]
+  >(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      return JSON.parse(localStorage.getItem('asset-tracker-rebalancing-history') || '[]');
+    } catch { return []; }
+  });
 
   const getRatios = useCallback((): Record<string, number> => {
     return { ...DEFAULT_RATIOS, ...(customRatios ?? {}) };
@@ -362,11 +198,30 @@ export default function RealDbTower() {
         // 테이블 없을 수 있음
       }
       setEmergencyFundAmount(emergencyFund);
+      // 배당금 기록 로드
+      let dividends: DividendRecord[] = [];
+      try {
+        const { data: divData } = await supabase
+          .from('dividends')
+          .select('*')
+          .order('date', { ascending: true });
+        dividends = (divData || []).map((d: any) => ({
+          id: d.id,
+          date: String(d.date).slice(0, 10),
+          asset_key: String(d.asset_key),
+          amount: Number(d.amount ?? 0),
+          is_reinvested: Boolean(d.is_reinvested),
+          note: d.note ?? '',
+        }));
+      } catch {
+        // 테이블 없을 수 있음
+      }
       setDbHistory({
         budgets: bData || [],
         records: rData || [],
         batchSummaries,
         snapshots,
+        dividends,
       });
     } finally {
       setLoading(false);
@@ -414,6 +269,46 @@ export default function RealDbTower() {
     },
     [],
   );
+
+  /** 매도 기록 저장 */
+  const handleSellRecord = useCallback(async (sellData: {
+    asset_key: string; quantity: number; price: number; amount: number; date: string;
+  }) => {
+    try {
+      await supabase.from('investment_records').insert({
+        date: sellData.date,
+        asset_key: sellData.asset_key,
+        price: sellData.price,
+        quantity: sellData.quantity,
+        amount: sellData.amount,
+        type: 'sell',
+      });
+      alert('✅ 매도 기록이 저장되었습니다.');
+      loadAllData();
+    } catch {
+      alert('매도 기록 저장에 실패했습니다.');
+    }
+  }, []);
+
+  /** 배당금 추가 */
+  const handleAddDividend = useCallback(async (dividend: Omit<DividendRecord, 'id'>) => {
+    try {
+      await supabase.from('dividends').insert(dividend);
+      loadAllData();
+    } catch {
+      alert('배당금 저장에 실패했습니다.');
+    }
+  }, []);
+
+  /** 배당금 삭제 */
+  const handleDeleteDividend = useCallback(async (id: string) => {
+    try {
+      await supabase.from('dividends').delete().eq('id', id);
+      loadAllData();
+    } catch {
+      alert('배당금 삭제에 실패했습니다.');
+    }
+  }, []);
 
   useEffect(() => {
     loadAllData();
@@ -484,22 +379,42 @@ export default function RealDbTower() {
       (acc, cur) => acc + Number(cur.amount),
       0,
     );
-    const totalSpent = dbHistory.records.reduce(
+    const buyRecords = filterBuyRecords(dbHistory.records);
+    const sellRecords = filterSellRecords(dbHistory.records);
+    const totalBought = buyRecords.reduce(
       (acc, cur) => acc + getRecordAmount(cur),
       0,
     );
-    const currentCashBalance = totalDeposit - totalSpent;
+    const totalSold = sellRecords.reduce(
+      (acc, cur) => acc + getRecordAmount(cur),
+      0,
+    );
+    const currentCashBalance = totalDeposit - totalBought + totalSold;
+
+    // 실현 손익 계산
+    const realizedPnlByAsset = calculateRealizedPnl(dbHistory.records);
+    const totalRealizedPnl = Object.values(realizedPnlByAsset).reduce((a, b) => a + b, 0);
+
+    // 배당 수익 합산
+    const totalDividends = dbHistory.dividends.reduce((acc, d) => acc + d.amount, 0);
 
     const portfolio: any = {};
     Object.keys(NAMES).forEach(
       (k) =>
-        (portfolio[k] = { qty: 0, cost: 0, avg: 0, val: 0, roi: 0, weight: 0 }),
+        (portfolio[k] = { qty: 0, cost: 0, avg: 0, val: 0, roi: 0, weight: 0, realizedPnl: realizedPnlByAsset[k] ?? 0 }),
     );
 
-    dbHistory.records.forEach((r) => {
+    // 매수 기록 반영
+    buyRecords.forEach((r) => {
       if (portfolio[r.asset_key]) {
         portfolio[r.asset_key].qty += getRecordQty(r);
         portfolio[r.asset_key].cost += getRecordAmount(r);
+      }
+    });
+    // 매도 기록 반영 (수량 차감)
+    sellRecords.forEach((r) => {
+      if (portfolio[r.asset_key]) {
+        portfolio[r.asset_key].qty -= getRecordQty(r);
       }
     });
 
@@ -637,6 +552,8 @@ export default function RealDbTower() {
       chartHistory,
       currentExchangeRate,
       cumulativeCmaInterestToToday: interestUpToToday,
+      totalRealizedPnl,
+      totalDividends,
     };
   }, [marketData, dbHistory, livePrices, cmaRate]);
 
@@ -805,6 +722,18 @@ export default function RealDbTower() {
     });
     return { totalAsset, items };
   }, [myAccount, getRatios, ratioSum]);
+
+  /** 세금 시뮬레이션 */
+  const taxSimulation = useMemo(() => {
+    return calculateTaxSimulation(dbHistory.records, dbHistory.dividends);
+  }, [dbHistory.records, dbHistory.dividends]);
+
+  /** MDD 계산 */
+  const mddValue = useMemo(() => {
+    if (!myAccount || !myAccount.chartHistory.length) return 0;
+    const values = myAccount.chartHistory.map((p) => p.investment as number);
+    return calculateMDD(values).mdd;
+  }, [myAccount]);
 
   useEffect(() => {
     if (!myAccount || goalToast) return;
@@ -1165,12 +1094,6 @@ export default function RealDbTower() {
     currentPriceMap,
   } = myAccount;
   const { guide, thisMonthResidue, totalExpectedSpend } = buyPlan;
-  const formatNum = (n: number) => Math.floor(n).toLocaleString();
-  const formatDec = (n: number) =>
-    n.toLocaleString(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 6,
-    });
   const totalRoi =
     totalInvested > 0 ? (totalAsset / totalInvested - 1) * 100 : 0;
 
@@ -1198,6 +1121,7 @@ export default function RealDbTower() {
             isRefreshingPrice={isRefreshingPrice}
             onOpenResetDb={() => setShowResetPasswordModal(true)}
             onOpenDeleteByDate={() => setShowDeleteByDateModal(true)}
+            onOpenSellRecord={() => setShowSellModal(true)}
             totalInvested={totalInvested}
             totalAsset={totalAsset}
             totalRoi={totalRoi}
@@ -1297,6 +1221,18 @@ export default function RealDbTower() {
             items={rebalancingData.items}
             formatNum={formatNum}
             darkMode={darkMode}
+            history={rebalancingHistory}
+            onSaveSnapshot={() => {
+              const snapshot = {
+                date: new Date().toISOString().slice(0, 10),
+                totalAsset: rebalancingData.totalAsset,
+                items: rebalancingData.items,
+              };
+              const updated = [snapshot, ...rebalancingHistory].slice(0, 20);
+              setRebalancingHistory(updated);
+              localStorage.setItem('asset-tracker-rebalancing-history', JSON.stringify(updated));
+              alert('리밸런싱 스냅샷이 저장되었습니다.');
+            }}
           />
         )}
 
@@ -1348,6 +1284,61 @@ export default function RealDbTower() {
           onToggle={() => setShowDeposits(!showDeposits)}
           budgets={dbHistory.budgets}
           formatNum={formatNum}
+        />
+
+        {/* 배당금 내역 */}
+        <DividendSection
+          dividends={dbHistory.dividends}
+          names={NAMES}
+          formatNum={formatNum}
+          onAddDividend={handleAddDividend}
+          onDeleteDividend={handleDeleteDividend}
+        />
+
+        {/* 세금 시뮬레이션 */}
+        <TaxSimulationSection
+          taxData={taxSimulation}
+          formatNum={formatNum}
+          currentYear={new Date().getFullYear()}
+        />
+
+        {/* 환율 영향 분석 */}
+        <ExchangeRateSection
+          currentExchangeRate={currentExchangeRate}
+          foreignAssets={FOREIGN_ASSET_KEYS
+            .filter((k) => k !== 'btc' && portfolio[k]?.qty > 0)
+            .map((k) => ({
+              key: k,
+              name: NAMES[k] ?? k,
+              qty: portfolio[k]?.qty ?? 0,
+              costKrw: portfolio[k]?.cost ?? 0,
+              valueKrw: portfolio[k]?.val ?? 0,
+            }))}
+          formatNum={formatNum}
+        />
+
+        {/* 목표 달성 예측 */}
+        <GoalProjectionSection
+          currentAsset={totalAsset}
+          monthlyInvestment={inputBudget}
+          totalInvested={totalInvested}
+          goalAsset={goalAsset}
+          formatNum={formatNum}
+          estimateGoalDate={estimateGoalDate}
+          mdd={mddValue}
+        />
+
+        {/* 매도 기록 모달 */}
+        <SellRecordModal
+          open={showSellModal}
+          onClose={() => setShowSellModal(false)}
+          portfolio={portfolio}
+          names={NAMES}
+          currentPriceMap={currentPriceMap}
+          formatNum={formatNum}
+          formatDec={formatDec}
+          onSave={handleSellRecord}
+          isSaving={isSaving}
         />
 
         <PasswordConfirmModal

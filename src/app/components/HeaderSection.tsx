@@ -6,6 +6,7 @@ import {
   Settings,
   Sun,
   Trash2,
+  TrendingDown,
 } from 'lucide-react';
 
 export type HeaderSectionProps = {
@@ -17,6 +18,7 @@ export type HeaderSectionProps = {
   isRefreshingPrice: boolean;
   onOpenResetDb: () => void;
   onOpenDeleteByDate: () => void;
+  onOpenSellRecord?: () => void;
   totalInvested: number;
   totalAsset: number;
   totalRoi: number;
@@ -31,6 +33,7 @@ export function HeaderSection({
   isRefreshingPrice,
   onOpenResetDb,
   onOpenDeleteByDate,
+  onOpenSellRecord,
   totalInvested,
   totalAsset,
   totalRoi,
@@ -87,6 +90,16 @@ export function HeaderSection({
             시세 새로고침
           </span>
         </button>
+        {onOpenSellRecord && (
+          <button
+            onClick={onOpenSellRecord}
+            className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 hover:border-red-200 transition-all flex flex-col items-center justify-center gap-1"
+            title="매도 기록"
+          >
+            <TrendingDown size={18} />
+            <span className="text-[9px] font-black uppercase">매도</span>
+          </button>
+        )}
         <button
           onClick={onOpenDeleteByDate}
           className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 hover:border-amber-200 transition-all flex flex-col items-center justify-center gap-1"

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Activity, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
+import { Activity, TrendingDown, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react';
 import type { MarketSignal, SignalLevel } from '@/lib/types';
 import { getSignalLabel } from '@/lib/utils';
 
@@ -9,6 +9,8 @@ type MarketSignalSectionProps = {
   signal: MarketSignal;
   names: Record<string, string>;
   formatNum: (n: number) => string;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 };
 
 const LEVEL_STYLES: Record<SignalLevel, { bg: string; border: string; text: string; glow: string }> = {
@@ -27,7 +29,7 @@ const SCORE_BAR_COLOR: Record<SignalLevel, string> = {
   all_in:      'bg-rose-500',
 };
 
-export function MarketSignalSection({ signal, names, formatNum }: MarketSignalSectionProps) {
+export function MarketSignalSection({ signal, names, formatNum, onRefresh, isRefreshing }: MarketSignalSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const style = LEVEL_STYLES[signal.overallLevel];
 
@@ -48,6 +50,16 @@ export function MarketSignalSection({ signal, names, formatNum }: MarketSignalSe
           </span>
         </div>
         <div className="flex items-center gap-4">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="p-2.5 rounded-xl bg-white/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-700 transition-all disabled:opacity-50 shadow-sm"
+              title="시세 새로고침"
+            >
+              <RefreshCcw size={16} className={`text-slate-500 dark:text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          )}
           <div className="text-right">
             <p className="text-[10px] font-bold text-slate-400 uppercase">종합 점수</p>
             <p className={`text-3xl font-black ${style.text}`}>{signal.overallScore}</p>

@@ -1193,6 +1193,8 @@ export default function RealDbTower() {
             signal={marketSignal}
             names={NAMES}
             formatNum={formatNum}
+            onRefresh={loadAllData}
+            isRefreshing={isRefreshingPrice}
           />
         )}
 

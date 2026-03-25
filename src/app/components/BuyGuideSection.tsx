@@ -13,6 +13,7 @@ type GuideItem = {
   spent: number;
   baseQty: number;
   extraQty: number;
+  weightCapped?: boolean;
 };
 
 const SIGNAL_CARD_STYLES: Record<SignalLevel, string> = {
@@ -125,6 +126,7 @@ export function BuyGuideSection({
                 {keysInGuide.map((k) => {
                   const assetSig = marketSignal?.assetSignals[k];
                   const hasExtra = guide[k].extraQty > 0;
+                  const isCapped = guide[k].weightCapped;
                   return (
                     <div
                       key={k}
@@ -149,6 +151,12 @@ export function BuyGuideSection({
                           {!isPanicBuyMode && assetSig && assetSig.score >= 36 && (
                             <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-800/40 text-amber-700 dark:text-amber-300">
                               시그널 {assetSig.score}점
+                            </span>
+                          )}
+                          {/* 비중 상한 초과 경고 */}
+                          {isCapped && !isPanicBuyMode && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-600 text-slate-500 dark:text-slate-300">
+                              비중 초과 — 추매 제한
                             </span>
                           )}
                         </div>

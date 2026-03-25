@@ -634,10 +634,21 @@ export default function RealDbTower() {
         ? droppedAssets.reduce((s, k) => s + Math.abs(dropByKey[k]), 0)
         : 0;
 
-    // 시그널 가중치 합 (추가 배분 비율 계산용)
+    // ── 비중 상한 체크 (목표 비중의 1.5배 초과 시 시그널 추매 차단) ──
+    const WEIGHT_CAP_MULTIPLIER = 1.5;
+    const totalAssetVal = myAccount.totalAsset || 1;
+    const weightCapped: Record<string, boolean> = {};
+    assetKeys.forEach((k) => {
+      const targetWeight = (RATIOS[k] / ratioSum) * 100; // 목표 비중 %
+      const currentWeight = portfolio[k]?.weight ?? 0;    // 현재 비중 %
+      weightCapped[k] = currentWeight > targetWeight * WEIGHT_CAP_MULTIPLIER;
+    });
+
+    // 시그널 가중치 합 (비중 상한 초과 종목 제외)
     const signalWeightSum = hasSignalBuy
       ? assetKeys.reduce((s, k) => {
           const sig = marketSignal.assetSignals[k];
+          if (weightCapped[k]) return s; // 비중 상한 초과 → 제외
           return s + (sig && sig.multiplier > 1 ? sig.score * RATIOS[k] : 0);
         }, 0)
       : 0;
@@ -674,14 +685,18 @@ export default function RealDbTower() {
         if (k === 'btc') extraQty = extraAlloc / curP;
         else extraQty = Math.floor(extraAlloc / curP);
       } else if (hasSignalBuy && signalExtraBudget > 0 && curP > 0) {
-        // ── 시그널 기반 자동 추가매수 ──
-        const sig = marketSignal.assetSignals[k];
-        if (sig && sig.multiplier > 1 && signalWeightSum > 0) {
-          // 시그널 점수 × 목표비중으로 가중 배분
-          const weight = sig.score * RATIOS[k];
-          const extraAlloc = signalExtraBudget * (weight / signalWeightSum);
-          if (k === 'btc') extraQty = extraAlloc / curP;
-          else extraQty = Math.floor(extraAlloc / curP);
+        // ── 시그널 기반 자동 추가매수 (비중 상한 체크) ──
+        if (weightCapped[k]) {
+          // 비중 상한 초과 → 추가매수 차단, 예산은 다른 종목에 재배분됨
+          extraQty = 0;
+        } else {
+          const sig = marketSignal.assetSignals[k];
+          if (sig && sig.multiplier > 1 && signalWeightSum > 0) {
+            const weight = sig.score * RATIOS[k];
+            const extraAlloc = signalExtraBudget * (weight / signalWeightSum);
+            if (k === 'btc') extraQty = extraAlloc / curP;
+            else extraQty = Math.floor(extraAlloc / curP);
+          }
         }
       }
 
@@ -714,6 +729,7 @@ export default function RealDbTower() {
         price: curP,
         spent: Number.isFinite(spent) ? spent : 0,
         drop: Number.isFinite(drop) ? drop : 0,
+        weightCapped: weightCapped[k] ?? false,
       };
     });
 

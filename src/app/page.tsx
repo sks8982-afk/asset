@@ -43,6 +43,7 @@ export default function RealDbTower() {
       : Number(localStorage.getItem(STORAGE_KEYS.budget)) || 1300000,
   );
   const [marketData, setMarketData] = useState<any[]>([]);
+  const [fullMarketHistory, setFullMarketHistory] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<any | null>(null);
   const [dbHistory, setDbHistory] = useState<DbHistory>({
     budgets: [], records: [], batchSummaries: [], snapshots: [], dividends: [],
@@ -136,12 +137,15 @@ export default function RealDbTower() {
       const payload = await res.json();
 
       if (Array.isArray(payload)) {
+        setFullMarketHistory(payload);
         setMarketData(payload.filter((d) => d.d >= '2025-01'));
         setLivePrices(payload[payload.length - 1] || null);
       } else {
         const { history, latest } = payload;
-        if (Array.isArray(history))
+        if (Array.isArray(history)) {
+          setFullMarketHistory(history);
           setMarketData(history.filter((d: any) => d.d >= '2025-01'));
+        }
         setLivePrices(latest || null);
       }
       const { data: bData } = await supabase
@@ -559,11 +563,12 @@ export default function RealDbTower() {
   }, [marketData, dbHistory, livePrices, cmaRate]);
 
   // 1.5. 매수 시그널 계산 (백테스팅 기반 5단계 시스템)
+  // 전체 히스토리 사용 (MA12, 12개월 고점 등 장기 지표에 필요)
   const marketSignal: MarketSignal | null = useMemo(() => {
-    if (!marketData.length || !livePrices) return null;
+    if (!fullMarketHistory.length || !livePrices) return null;
     const assetKeys = Object.keys(NAMES).filter((k) => k !== 'cash');
-    return calculateMarketSignal(marketData, livePrices, assetKeys);
-  }, [marketData, livePrices]);
+    return calculateMarketSignal(fullMarketHistory, livePrices, assetKeys);
+  }, [fullMarketHistory, livePrices]);
 
   // 2. 매수 가이드 계산 (시그널 기반 + 수동 추매 모드 호환)
   const buyPlan = useMemo(() => {

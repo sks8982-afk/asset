@@ -410,10 +410,16 @@ export function calculateAssetSignal(
   else if (maBelowPct12 > 0) { maScore += 5; }
 
   // ── 3. 연속 하락 개월수 (모멘텀) ──
+  // prices는 완료된 월만 포함 (현재 미완료 월 제외됨)
+  // currentPrice는 이번 달 실시간가 → 마지막 완료월과 비교해 1회만 카운트
   let consecutiveDeclines = 0;
-  const allPrices = [...prices, currentPrice];
-  for (let i = allPrices.length - 1; i >= 1; i--) {
-    if (allPrices[i] < allPrices[i - 1]) consecutiveDeclines++;
+  // 먼저 현재가 vs 마지막 완료월 비교
+  if (prices.length > 0 && currentPrice < prices[prices.length - 1]) {
+    consecutiveDeclines++;
+  }
+  // 이후 완료된 월끼리 비교 (최신 → 과거 방향)
+  for (let i = prices.length - 1; i >= 1; i--) {
+    if (prices[i] < prices[i - 1]) consecutiveDeclines++;
     else break;
   }
 
@@ -462,10 +468,17 @@ export function calculateMarketSignal(
   const assetSignals: Record<string, AssetSignal> = {};
   const reasons: string[] = [];
 
+  // 현재 미완료 월 제거 (Yahoo 월봉에 이번 달 미완료 데이터 포함됨)
+  // → 완료된 월만 사용하고, 이번 달은 livePrices(실시간)로 대체
+  const currentYM = new Date().toISOString().slice(0, 7);
+  const completedHistory = marketHistory.filter(
+    (row) => String(row.d ?? '') < currentYM,
+  );
+
   // 자산별 시그널 계산
   for (const key of assetKeys) {
     if (key === 'cash') continue;
-    const monthlyPrices = marketHistory
+    const monthlyPrices = completedHistory
       .map((row) => Number(row[key]) || 0)
       .filter((p) => p > 0);
 

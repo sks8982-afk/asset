@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { History, ChevronDown } from 'lucide-react';
+import { History, ChevronDown, List, CalendarDays } from 'lucide-react';
+import { InvestmentCalendarView } from './InvestmentCalendarView';
 
 export type InvestmentRecord = {
   id?: string;
@@ -12,6 +13,7 @@ export type InvestmentRecord = {
   amount: number | string;
   amount_override?: number | null;
   is_panic_buy?: boolean;
+  type?: 'buy' | 'sell';
 };
 
 type InvestmentHistorySectionProps = {
@@ -26,7 +28,6 @@ type InvestmentHistorySectionProps = {
   names: Record<string, string>;
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
-  /** 비트코인: 금액 수정 시 수량 재계산. 주식: 단가 수정 → 금액=단가×수량으로 저장, 차액은 남은 현금에 반영 */
   onSaveAmountOverride: (recordId: string, amountOverride: number | null) => Promise<void>;
 };
 
@@ -45,8 +46,8 @@ export function InvestmentHistorySection({
   onSaveAmountOverride,
 }: InvestmentHistorySectionProps) {
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
-  /** BTC: 편집 중인 금액(숫자 문자열). 주식: 편집 중인 단가(숫자 문자열) */
   const [draftValue, setDraftValue] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   const monthOptions = Array.from(
     new Set(allRecords.map((r) => r.date.slice(0, 7)))
@@ -72,8 +73,12 @@ export function InvestmentHistorySection({
       </button>
       {open && (
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <select
+          {/* 뷰 모드 토글 */}
+          <div className="flex items-center justify-between">
+            <div className="flex flex-wrap gap-2">
+              {viewMode === 'list' && (
+                <>
+                  <select
               value={filterMonth}
               onChange={(e) => onFilterMonthChange(e.target.value)}
               className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-100"
@@ -97,7 +102,44 @@ export function InvestmentHistorySection({
                 </option>
               ))}
             </select>
+                </>
+              )}
+            </div>
+            <div className="flex rounded-xl border border-slate-200 dark:border-slate-600 overflow-hidden">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-1 px-3 py-1.5 text-[10px] font-bold transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-800'
+                    : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <List size={12} /> 목록
+              </button>
+              <button
+                onClick={() => setViewMode('calendar')}
+                className={`flex items-center gap-1 px-3 py-1.5 text-[10px] font-bold transition-colors ${
+                  viewMode === 'calendar'
+                    ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-800'
+                    : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <CalendarDays size={12} /> 달력
+              </button>
+            </div>
           </div>
+
+          {/* 달력 뷰 */}
+          {viewMode === 'calendar' && (
+            <InvestmentCalendarView
+              records={allRecords}
+              names={names}
+              formatNum={formatNum}
+            />
+          )}
+
+          {/* 목록 뷰 */}
+          {viewMode === 'list' && (
           <div className="overflow-x-auto max-h-[240px] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-600">
             <table className="w-full text-xs text-slate-700 dark:text-slate-100">
               <thead className="bg-slate-100 dark:bg-slate-700 sticky top-0 text-slate-900 dark:text-slate-100">
@@ -282,6 +324,7 @@ export function InvestmentHistorySection({
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
     </section>

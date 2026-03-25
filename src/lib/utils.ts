@@ -493,23 +493,146 @@ export function getSignalLabel(level: SignalLevel): string {
   return SIGNAL_LEVELS.find((sl) => sl.level === level)?.label ?? '🟢 정상';
 }
 
+// ─── 자산별 위험 프로파일 ───
+//
+// 30년 애널리스트 관점: 같은 -20%라도 자산마다 의미가 완전히 다르다.
+// - S&P500 -20% = 역사적 대폭락 (2008, 2020) → 강력 매수 시그널
+// - 비트코인 -20% = 흔한 조정 (연 3-4회 발생) → 아직 관망
+// - 금 -10% = 안전자산 치고 큰 하락 → 의미있는 시그널
+//
+// 각 자산의 역사적 변동성에 맞게 임계값을 다르게 설정한다.
+
+type AssetRiskCategory = 'safe_haven' | 'standard' | 'growth' | 'single_stock' | 'crypto';
+
+type RiskProfile = {
+  category: AssetRiskCategory;
+  label: string;
+  /** 낙폭 임계값: [최소%, 점수][] — 큰 것부터 매칭 */
+  drawdownTiers: [number, number, string][];
+  /** MA 괴리율 기준 배수 (1.0 = 기본, 2.0 = 2배 넓은 기준) */
+  maScale: number;
+  /** 연속 하락 의미 있는 최소 개월수 */
+  momentumMinMonths: number;
+  /** 최대 점수 상한 (자동으로 이 이상 안 감) */
+  scoreCap: number;
+};
+
+const RISK_PROFILES: Record<AssetRiskCategory, RiskProfile> = {
+  // 금: 변동성 낮은 안전자산 → 작은 하락도 의미 크다
+  safe_haven: {
+    category: 'safe_haven',
+    label: '안전자산',
+    drawdownTiers: [
+      [25, 55, '대폭락'],
+      [18, 45, '급락'],
+      [12, 35, '조정'],
+      [8,  25, ''],
+      [3,  10, ''],
+    ],
+    maScale: 0.7,
+    momentumMinMonths: 2,
+    scoreCap: 85,
+  },
+  // S&P500, KODEX200: 지수 ETF → 평균회귀 강함, 기본 기준
+  standard: {
+    category: 'standard',
+    label: '지수 ETF',
+    drawdownTiers: [
+      [30, 55, '대폭락'],
+      [20, 45, '급락'],
+      [15, 35, '조정'],
+      [10, 25, ''],
+      [5,  10, ''],
+    ],
+    maScale: 1.0,
+    momentumMinMonths: 3,
+    scoreCap: 100,
+  },
+  // 나스닥, 테크TOP10, 반도체, 코스닥: 성장주/테마 → 변동 큼
+  growth: {
+    category: 'growth',
+    label: '성장/테마',
+    drawdownTiers: [
+      [35, 55, '대폭락'],
+      [25, 40, '급락'],
+      [18, 30, '조정'],
+      [12, 20, ''],
+      [7,  10, ''],
+    ],
+    maScale: 1.3,
+    momentumMinMonths: 3,
+    scoreCap: 100,
+  },
+  // 삼성전자: 개별 종목 → 종목 고유 리스크 있음
+  single_stock: {
+    category: 'single_stock',
+    label: '개별종목',
+    drawdownTiers: [
+      [40, 55, '대폭락'],
+      [30, 40, '급락'],
+      [20, 30, '조정'],
+      [12, 20, ''],
+      [7,  10, ''],
+    ],
+    maScale: 1.5,
+    momentumMinMonths: 3,
+    scoreCap: 90,
+  },
+  // 비트코인: 극단적 변동성 → 기준을 대폭 높여야 함
+  crypto: {
+    category: 'crypto',
+    label: '암호화폐',
+    drawdownTiers: [
+      [65, 55, '대폭락'],
+      [50, 40, '급락'],
+      [35, 30, '조정'],
+      [25, 20, ''],
+      [15, 10, ''],
+    ],
+    maScale: 2.5,
+    momentumMinMonths: 4,
+    scoreCap: 75, // 암호화폐는 올인 불가 — 최대 적극매수까지만
+  },
+};
+
+/** 자산 키 → 위험 프로파일 매핑 */
+const ASSET_RISK_MAP: Record<string, AssetRiskCategory> = {
+  snp: 'standard',
+  kodex200: 'standard',
+  nasdaq: 'growth',
+  tech10: 'growth',
+  kodex_kosdaq150: 'growth',
+  semiconductor_top10: 'growth',
+  samsung: 'single_stock',
+  gold: 'safe_haven',
+  btc: 'crypto',
+};
+
+/** 자산의 위험 프로파일 조회 */
+export function getAssetRiskProfile(key: string): RiskProfile {
+  const category = ASSET_RISK_MAP[key] ?? 'standard';
+  return RISK_PROFILES[category];
+}
+
 /**
- * 개별 자산 시그널 계산
+ * 개별 자산 시그널 계산 (자산별 위험 프로파일 반영)
  *
  * @param prices - 월별 가격 배열 (오래된 것 → 최신 순서, 최소 3개월)
  * @param currentPrice - 실시간 현재가
  * @param key - 자산 키
  *
- * 채점 기준 (백테스팅 검증):
- * 1. 고점 대비 낙폭 (Drawdown): 0-55점 — 가장 중요한 지표
- * 2. 이동평균 괴리: 0-25점 — 추세 하회 시 매수 유리
- * 3. 연속 하락 모멘텀: 0-15점 — 과매도 신호
+ * 채점 기준 (백테스팅 검증, 자산별 차등 적용):
+ * 1. 고점 대비 낙폭 (Drawdown): 0-55점 — 자산별 임계값 상이
+ * 2. 이동평균 괴리: 0-25점 — maScale로 기준 조정
+ * 3. 연속 하락 모멘텀: 0-15점 — momentumMinMonths로 기준 조정
+ * 4. 점수 상한: scoreCap으로 제한 (BTC는 75점 상한)
  */
 export function calculateAssetSignal(
   prices: number[],
   currentPrice: number,
   key: string,
 ): AssetSignal {
+  const profile = getAssetRiskProfile(key);
   const reasons: string[] = [];
 
   // ── 1. 고점 대비 낙폭 (최근 12개월 고점 기준) ──
@@ -520,75 +643,74 @@ export function calculateAssetSignal(
     : 0;
 
   let drawdownScore = 0;
-  if (drawdownFromPeak >= 30) {
-    drawdownScore = 55;
-    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (대폭락)`);
-  } else if (drawdownFromPeak >= 20) {
-    drawdownScore = 45;
-    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (급락)`);
-  } else if (drawdownFromPeak >= 15) {
-    drawdownScore = 35;
-    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (조정)`);
-  } else if (drawdownFromPeak >= 10) {
-    drawdownScore = 25;
-    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}%`);
-  } else if (drawdownFromPeak >= 5) {
-    drawdownScore = 10;
+  for (const [threshold, score, label] of profile.drawdownTiers) {
+    if (drawdownFromPeak >= threshold) {
+      drawdownScore = score;
+      if (label) {
+        reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (${label})`);
+      } else if (drawdownFromPeak >= 10) {
+        reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}%`);
+      }
+      break;
+    }
   }
 
-  // ── 2. 이동평균 괴리율 ──
-  // 6개월 이동평균
+  // ── 2. 이동평균 괴리율 (maScale로 자산별 기준 조정) ──
+  const s = profile.maScale; // 기준 배수
   const ma6Prices = prices.slice(-6);
   const ma6 = ma6Prices.length >= 3
-    ? ma6Prices.reduce((s, p) => s + p, 0) / ma6Prices.length
+    ? ma6Prices.reduce((sum, p) => sum + p, 0) / ma6Prices.length
     : 0;
   const maBelowPct6 = ma6 > 0 ? ((ma6 - currentPrice) / ma6) * 100 : 0;
 
-  // 12개월 이동평균
   const ma12Prices = prices.slice(-12);
   const ma12 = ma12Prices.length >= 6
-    ? ma12Prices.reduce((s, p) => s + p, 0) / ma12Prices.length
+    ? ma12Prices.reduce((sum, p) => sum + p, 0) / ma12Prices.length
     : 0;
   const maBelowPct12 = ma12 > 0 ? ((ma12 - currentPrice) / ma12) * 100 : 0;
 
   let maScore = 0;
-  // 6개월 MA 하회
-  if (maBelowPct6 > 10) { maScore += 10; reasons.push('6개월 평균 대비 -10%↑ 하회'); }
-  else if (maBelowPct6 > 5) { maScore += 7; }
+  // 6개월 MA 하회 (기준: 5% × maScale, 10% × maScale)
+  if (maBelowPct6 > 10 * s) { maScore += 10; reasons.push(`6개월 평균 대비 -${maBelowPct6.toFixed(1)}% 하회`); }
+  else if (maBelowPct6 > 5 * s) { maScore += 7; }
   else if (maBelowPct6 > 0) { maScore += 3; }
 
   // 12개월 MA 하회
-  if (maBelowPct12 > 10) { maScore += 15; reasons.push('12개월 평균 대비 -10%↑ 하회'); }
-  else if (maBelowPct12 > 5) { maScore += 10; reasons.push('12개월 평균 하회'); }
+  if (maBelowPct12 > 10 * s) { maScore += 15; reasons.push(`12개월 평균 대비 -${maBelowPct12.toFixed(1)}% 하회`); }
+  else if (maBelowPct12 > 5 * s) { maScore += 10; reasons.push('12개월 평균 하회'); }
   else if (maBelowPct12 > 0) { maScore += 5; }
 
-  // ── 3. 연속 하락 개월수 (모멘텀) ──
-  // prices는 완료된 월만 포함 (현재 미완료 월 제외됨)
-  // currentPrice는 이번 달 실시간가 → 마지막 완료월과 비교해 1회만 카운트
+  // ── 3. 연속 하락 개월수 (자산별 최소 기준 적용) ──
   let consecutiveDeclines = 0;
-  // 먼저 현재가 vs 마지막 완료월 비교
   if (prices.length > 0 && currentPrice < prices[prices.length - 1]) {
     consecutiveDeclines++;
   }
-  // 이후 완료된 월끼리 비교 (최신 → 과거 방향)
   for (let i = prices.length - 1; i >= 1; i--) {
     if (prices[i] < prices[i - 1]) consecutiveDeclines++;
     else break;
   }
 
   let momentumScore = 0;
-  if (consecutiveDeclines >= 4) {
+  const minM = profile.momentumMinMonths;
+  if (consecutiveDeclines >= minM + 1) {
     momentumScore = 15;
     reasons.push(`${consecutiveDeclines}개월 연속 하락 (과매도)`);
-  } else if (consecutiveDeclines >= 3) {
+  } else if (consecutiveDeclines >= minM) {
     momentumScore = 10;
     reasons.push(`${consecutiveDeclines}개월 연속 하락`);
-  } else if (consecutiveDeclines >= 2) {
+  } else if (consecutiveDeclines >= minM - 1 && consecutiveDeclines >= 2) {
     momentumScore = 5;
   }
 
-  const totalScore = Math.min(100, drawdownScore + maScore + momentumScore);
+  // ── 총점 (scoreCap으로 자산별 상한 적용) ──
+  const rawScore = drawdownScore + maScore + momentumScore;
+  const totalScore = Math.min(profile.scoreCap, rawScore);
   const { level, multiplier } = scoreToLevel(totalScore);
+
+  // 프로파일 정보를 이유에 추가 (상한 적용 시)
+  if (rawScore > profile.scoreCap) {
+    reasons.push(`${profile.label} 상한 ${profile.scoreCap}점 적용 (원점수 ${rawScore})`);
+  }
 
   return {
     key,

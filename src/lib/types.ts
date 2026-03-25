@@ -140,6 +140,38 @@ export type RebalancingItem = {
   diff: number;
 };
 
+// ─── 매수 시그널 시스템 ───
+
+/** 시그널 레벨 (5단계) */
+export type SignalLevel = 'normal' | 'watch' | 'opportunity' | 'strong_buy' | 'all_in';
+
+/** 개별 자산 시그널 */
+export type AssetSignal = {
+  key: string;
+  score: number; // 0-100
+  level: SignalLevel;
+  multiplier: number;
+  drawdownFromPeak: number; // 고점 대비 낙폭 %
+  drawdownScore: number;
+  maBelowPct6: number; // 6개월 MA 대비 괴리율 %
+  maBelowPct12: number; // 12개월 MA 대비 괴리율 %
+  maScore: number;
+  consecutiveDeclines: number; // 연속 하락 개월수
+  momentumScore: number;
+  reasons: string[];
+};
+
+/** 전체 시장 시그널 */
+export type MarketSignal = {
+  overallScore: number; // 0-100
+  overallLevel: SignalLevel;
+  overallMultiplier: number;
+  assetSignals: Record<string, AssetSignal>;
+  correlationScore: number; // 동시 하락 자산수 기반
+  signalCount: number; // opportunity 이상인 자산 수
+  reasons: string[];
+};
+
 /** 세금 시뮬레이션 결과 */
 export type TaxSimulation = {
   // ─── ISA 계좌 내 (손익통산 적용) ───

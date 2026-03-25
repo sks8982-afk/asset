@@ -2,6 +2,8 @@
 
 import React from 'react';
 import { Calculator, Save, RefreshCcw, Edit3 } from 'lucide-react';
+import type { MarketSignal, SignalLevel } from '@/lib/types';
+import { getSignalLabel } from '@/lib/utils';
 
 type BudgetItem = { month_date: string };
 type GuideItem = {
@@ -11,6 +13,14 @@ type GuideItem = {
   spent: number;
   baseQty: number;
   extraQty: number;
+};
+
+const SIGNAL_CARD_STYLES: Record<SignalLevel, string> = {
+  normal:      '',
+  watch:       '',
+  opportunity: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700 ring-1 ring-amber-300 dark:ring-amber-600',
+  strong_buy:  'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-600 ring-2 ring-orange-300 dark:ring-orange-500',
+  all_in:      'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-700 ring-2 ring-rose-300 dark:ring-rose-600',
 };
 
 export type BuyGuideSectionProps = {
@@ -26,6 +36,7 @@ export type BuyGuideSectionProps = {
   setManualEdits: (value: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   thisMonthResidue: number;
   formatNum: (n: number) => string;
+  marketSignal?: MarketSignal | null;
 };
 
 export function BuyGuideSection({
@@ -41,11 +52,36 @@ export function BuyGuideSection({
   setManualEdits,
   thisMonthResidue,
   formatNum,
+  marketSignal,
 }: BuyGuideSectionProps) {
   const currentYearMonth = new Date().toISOString().slice(0, 7);
   const hasCurrentMonthBudget = dbHistoryBudgets.some((b) =>
     b.month_date.startsWith(currentYearMonth)
   );
+
+  const hasSignalBuy = marketSignal != null && !isPanicBuyMode &&
+    Object.values(marketSignal.assetSignals).some((s) => s.multiplier > 1);
+
+  // 매수 모드 라벨
+  const getModeLabel = () => {
+    if (isPanicBuyMode) return '🔥풀매수';
+    if (hasSignalBuy) return getSignalLabel(marketSignal!.overallLevel);
+    return '🟢정기';
+  };
+
+  // 카드 하이라이트: 시그널 기반 or 패닉 기반
+  const getCardStyle = (k: string) => {
+    const defaultStyle = 'bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-600';
+    if (isPanicBuyMode && guide[k].drop <= -10) {
+      return 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-700 ring-2 ring-rose-300 dark:ring-rose-600';
+    }
+    if (!isPanicBuyMode && marketSignal?.assetSignals[k]) {
+      const sig = marketSignal.assetSignals[k];
+      const style = SIGNAL_CARD_STYLES[sig.level];
+      if (style) return style;
+    }
+    return defaultStyle;
+  };
 
   return (
     <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-xl relative overflow-hidden">
@@ -56,8 +92,7 @@ export function BuyGuideSection({
             size={24}
           />
           <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100">
-            {currentMonth}월 매수 가이드 (
-            {isPanicBuyMode ? '🔥풀매수' : '🟢정기'})
+            {currentMonth}월 매수 가이드 ({getModeLabel()})
           </h2>
           <span className="text-[10px] text-slate-400 font-normal ml-2">
             *수량을 클릭해 수정 가능
@@ -87,71 +122,82 @@ export function BuyGuideSection({
                 {group.label}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6">
-                {keysInGuide.map((k) => (
-                  <div
-                    key={k}
-                    className={`p-4 sm:p-6 rounded-[2rem] border transition-all ${
-                      isPanicBuyMode && guide[k].drop <= -10
-                        ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-700 ring-2 ring-rose-300 dark:ring-rose-600'
-                        : 'bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase leading-none">
-                        {names[k]}
-                      </p>
-                      <span
-                        className={`text-[10px] font-bold ${
-                          guide[k].drop < 0
-                            ? 'text-rose-500'
-                            : 'text-emerald-500 dark:text-emerald-400'
-                        }`}
-                      >
-                        {Math.abs(guide[k].drop).toFixed(1)}%{' '}
-                        {guide[k].drop < 0 ? '▼ 전월비' : '▲ 전월비'}
-                      </span>
-                    </div>
-
-                    <div className="mb-2 relative group">
-                      <div className="flex items-baseline gap-1">
-                        <input
-                          type="number"
-                          step={k === 'btc' ? '0.000001' : '1'}
-                          value={Number.isFinite(guide[k].qty) ? guide[k].qty : 0}
-                          onChange={(e) =>
-                            setManualEdits({
-                              ...manualEdits,
-                              [k]: Number(e.target.value),
-                            })
-                          }
-                          className="bg-transparent border-b border-transparent group-hover:border-slate-300 dark:group-hover:border-slate-500 focus:border-blue-500 w-24 text-4xl font-black text-slate-900 dark:text-slate-100 p-0 outline-none transition-all"
-                        />
-                        <span className="text-sm font-bold text-slate-300 dark:text-slate-500">
-                          주
-                        </span>
-                        <Edit3
-                          size={12}
-                          className="text-slate-300 opacity-0 group-hover:opacity-100"
-                        />
-                      </div>
-                      {isPanicBuyMode && guide[k].extraQty > 0 && (
-                        <div className="flex items-center gap-1 mt-1">
-                          <span className="text-xs font-bold text-slate-400">
-                            기본 {formatNum(guide[k].baseQty)}
+                {keysInGuide.map((k) => {
+                  const assetSig = marketSignal?.assetSignals[k];
+                  const hasExtra = guide[k].extraQty > 0;
+                  return (
+                    <div
+                      key={k}
+                      className={`p-4 sm:p-6 rounded-[2rem] border transition-all ${getCardStyle(k)}`}
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase leading-none">
+                          {names[k]}
+                        </p>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span
+                            className={`text-[10px] font-bold ${
+                              guide[k].drop < 0
+                                ? 'text-rose-500'
+                                : 'text-emerald-500 dark:text-emerald-400'
+                            }`}
+                          >
+                            {Math.abs(guide[k].drop).toFixed(1)}%{' '}
+                            {guide[k].drop < 0 ? '▼ 전월비' : '▲ 전월비'}
                           </span>
-                          <span className="text-xs font-black text-rose-500 animate-pulse">
-                            + 추가 {formatNum(guide[k].extraQty)}
-                          </span>
+                          {/* 시그널 뱃지 */}
+                          {!isPanicBuyMode && assetSig && assetSig.score >= 36 && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-800/40 text-amber-700 dark:text-amber-300">
+                              시그널 {assetSig.score}점
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </div>
 
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-4 leading-tight">
-                      예상 체결가: {formatNum(guide[k].price)}원<br />
-                      매수액: {formatNum(guide[k].spent)}원
-                    </p>
-                  </div>
-                ))}
+                      <div className="mb-2 relative group">
+                        <div className="flex items-baseline gap-1">
+                          <input
+                            type="number"
+                            step={k === 'btc' ? '0.000001' : '1'}
+                            value={Number.isFinite(guide[k].qty) ? guide[k].qty : 0}
+                            onChange={(e) =>
+                              setManualEdits({
+                                ...manualEdits,
+                                [k]: Number(e.target.value),
+                              })
+                            }
+                            className="bg-transparent border-b border-transparent group-hover:border-slate-300 dark:group-hover:border-slate-500 focus:border-blue-500 w-24 text-4xl font-black text-slate-900 dark:text-slate-100 p-0 outline-none transition-all"
+                          />
+                          <span className="text-sm font-bold text-slate-300 dark:text-slate-500">
+                            주
+                          </span>
+                          <Edit3
+                            size={12}
+                            className="text-slate-300 opacity-0 group-hover:opacity-100"
+                          />
+                        </div>
+                        {/* 추가 매수 표시 (패닉 or 시그널) */}
+                        {hasExtra && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="text-xs font-bold text-slate-400">
+                              기본 {formatNum(guide[k].baseQty)}
+                            </span>
+                            <span className={`text-xs font-black animate-pulse ${
+                              isPanicBuyMode ? 'text-rose-500' : 'text-amber-600 dark:text-amber-400'
+                            }`}>
+                              + 시그널 추가 {formatNum(guide[k].extraQty)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-4 leading-tight">
+                        예상 체결가: {formatNum(guide[k].price)}원<br />
+                        매수액: {formatNum(guide[k].spent)}원
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
@@ -171,6 +217,15 @@ export function BuyGuideSection({
                 </p>
                 <p className="text-[10px] opacity-60 text-emerald-400">
                   (비상금까지 포함해 99% 투입 기준)
+                </p>
+              </>
+            ) : hasSignalBuy ? (
+              <>
+                <p className="text-[10px] opacity-60">
+                  이번달 입금액 + 통장잔고 - 총 매수액
+                </p>
+                <p className="text-[10px] opacity-60 text-amber-400">
+                  (시그널 기반 보유현금 자동 투입)
                 </p>
               </>
             ) : (

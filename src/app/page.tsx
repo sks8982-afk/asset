@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { DbHistory, DividendRecord } from '@/lib/types';
+import type { DbHistory, DividendRecord, MarketSignal } from '@/lib/types';
 import {
   STORAGE_KEYS, COLORS, NAMES, DEFAULT_RATIOS,
   ASSET_MARKET_GROUPS, RATIO_PRESETS, RESET_DB_PASSWORD, FOREIGN_ASSET_KEYS,
@@ -10,7 +10,7 @@ import {
   getRecordAmount, getRecordQty, filterBuyRecords, filterSellRecords,
   getCumulativeInterestByMonths, getInterestFromMonthStartToToday,
   formatNum, formatDec, calculateRealizedPnl, calculateTaxSimulation,
-  estimateGoalDate, calculateMDD,
+  estimateGoalDate, calculateMDD, calculateMarketSignal,
 } from '@/lib/utils';
 import { HeaderSection } from './components/HeaderSection';
 import { HoldingsSummarySection } from './components/HoldingsSummarySection';
@@ -34,6 +34,7 @@ import { DividendSection } from './components/DividendSection';
 import { TaxSimulationSection } from './components/TaxSimulationSection';
 import { GoalProjectionSection } from './components/GoalProjectionSection';
 import { ExchangeRateSection } from './components/ExchangeRateSection';
+import { MarketSignalSection } from './components/MarketSignalSection';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useState(() =>
@@ -557,7 +558,14 @@ export default function RealDbTower() {
     };
   }, [marketData, dbHistory, livePrices, cmaRate]);
 
-  // 2. 매수 가이드 계산 (핵심 로직)
+  // 1.5. 매수 시그널 계산 (백테스팅 기반 5단계 시스템)
+  const marketSignal: MarketSignal | null = useMemo(() => {
+    if (!marketData.length || !livePrices) return null;
+    const assetKeys = Object.keys(NAMES).filter((k) => k !== 'cash');
+    return calculateMarketSignal(marketData, livePrices, assetKeys);
+  }, [marketData, livePrices]);
+
+  // 2. 매수 가이드 계산 (시그널 기반 + 수동 추매 모드 호환)
   const buyPlan = useMemo(() => {
     if (!myAccount) return null;
     const { currentCashBalance, currentPriceMap, prevPriceMap, portfolio } =
@@ -570,7 +578,21 @@ export default function RealDbTower() {
 
     const assetKeys = Object.keys(RATIOS).filter((k) => k !== 'cash');
 
-    // 추매 예산 계산: 보유 현금 + 이번 달 잔여 예산의 90%
+    // 전월 대비 등락률
+    const dropByKey: Record<string, number> = {};
+    assetKeys.forEach((k) => {
+      const prevP = prevPriceMap[k] || 1;
+      dropByKey[k] = (currentPriceMap[k] / prevP - 1) * 100;
+    });
+
+    // ── 시그널 기반 추가 예산 계산 ──
+    // isPanicBuyMode(수동): 기존 로직 유지 (보유현금 99% 투입)
+    // 시그널 자동: 개별 자산 시그널 배율로 추가 매수 (보유현금에서 차감)
+    const useSignalMode = !isPanicBuyMode && marketSignal != null;
+    const hasSignalBuy = useSignalMode &&
+      Object.values(marketSignal.assetSignals).some((s) => s.multiplier > 1);
+
+    // 수동 추매 예산 (기존 로직)
     let panicBudget = 0;
     if (isPanicBuyMode) {
       let baseMonthlySpendEstimate = 0;
@@ -585,17 +607,34 @@ export default function RealDbTower() {
       const estResidue = Math.max(0, inputBudget - baseMonthlySpendEstimate);
       panicBudget = (currentCashBalance + estResidue) * 0.99;
     }
-    const dropByKey: Record<string, number> = {};
-    assetKeys.forEach((k) => {
-      const prevP = prevPriceMap[k] || 1;
-      dropByKey[k] = (currentPriceMap[k] / prevP - 1) * 100;
-    });
+
+    // 시그널 추가매수 가용 예산 (보유현금의 일부를 시그널 강도에 비례해 투입)
+    let signalExtraBudget = 0;
+    if (hasSignalBuy && currentCashBalance > 0) {
+      // 전체 시그널 점수에 따라 현금 투입 비율 결정
+      // opportunity(36-55): 현금의 20%, strong_buy(56-75): 40%, all_in(76+): 70%
+      const overallScore = marketSignal.overallScore;
+      let cashUsePct = 0;
+      if (overallScore >= 76) cashUsePct = 0.70;
+      else if (overallScore >= 56) cashUsePct = 0.40;
+      else if (overallScore >= 36) cashUsePct = 0.20;
+      signalExtraBudget = currentCashBalance * cashUsePct;
+    }
+
     const droppedAssets = assetKeys.filter((k) => dropByKey[k] <= -10);
     const halfRatioSum = assetKeys.reduce((s, k) => s + RATIOS[k] / 2, 0);
     const totalDropWeight =
       droppedAssets.length > 0
         ? droppedAssets.reduce((s, k) => s + Math.abs(dropByKey[k]), 0)
         : 0;
+
+    // 시그널 가중치 합 (추가 배분 비율 계산용)
+    const signalWeightSum = hasSignalBuy
+      ? assetKeys.reduce((s, k) => {
+          const sig = marketSignal.assetSignals[k];
+          return s + (sig && sig.multiplier > 1 ? sig.score * RATIOS[k] : 0);
+        }, 0)
+      : 0;
 
     assetKeys.forEach((k) => {
       const curP = Number(currentPriceMap[k]) || 0;
@@ -609,7 +648,9 @@ export default function RealDbTower() {
       }
 
       let extraQty = 0;
+
       if (isPanicBuyMode && panicBudget > 0 && curP > 0) {
+        // ── 수동 추매 모드 (기존 로직 유지) ──
         let extraAlloc = 0;
         if (droppedAssets.length > 0) {
           const partHalf =
@@ -626,9 +667,19 @@ export default function RealDbTower() {
         }
         if (k === 'btc') extraQty = extraAlloc / curP;
         else extraQty = Math.floor(extraAlloc / curP);
+      } else if (hasSignalBuy && signalExtraBudget > 0 && curP > 0) {
+        // ── 시그널 기반 자동 추가매수 ──
+        const sig = marketSignal.assetSignals[k];
+        if (sig && sig.multiplier > 1 && signalWeightSum > 0) {
+          // 시그널 점수 × 목표비중으로 가중 배분
+          const weight = sig.score * RATIOS[k];
+          const extraAlloc = signalExtraBudget * (weight / signalWeightSum);
+          if (k === 'btc') extraQty = extraAlloc / curP;
+          else extraQty = Math.floor(extraAlloc / curP);
+        }
       }
 
-      // 3. 수동 수정 반영 (Manual Override)
+      // 수동 수정 반영 (Manual Override)
       let finalQty = baseQty + extraQty;
       if (manualEdits[k] !== undefined) {
         finalQty = manualEdits[k];
@@ -641,7 +692,8 @@ export default function RealDbTower() {
       const spent = finalQty * curP;
       const baseSpent = baseQty * curP;
       const actualBaseSpent = Math.min(spent, baseSpent);
-      const monthlySpendContribution = isPanicBuyMode
+      const isExtraMode = isPanicBuyMode || hasSignalBuy;
+      const monthlySpendContribution = isExtraMode
         ? spent
         : manualEdits[k] !== undefined
           ? spent
@@ -659,11 +711,11 @@ export default function RealDbTower() {
       };
     });
 
-    const thisMonthResidue = isPanicBuyMode
+    const isExtraMode = isPanicBuyMode || hasSignalBuy;
+    const thisMonthResidue = isExtraMode
       ? inputBudget + myAccount.currentCashBalance - totalMonthlySpend
       : inputBudget - totalMonthlySpend;
-    // CMA 월 예상 이자: 이달 잔여 현금 + 현재 통장 잔고(기존에 매수 후 남은 현금) 모두 CMA에 있음
-    const cmaBalanceForInterest = isPanicBuyMode
+    const cmaBalanceForInterest = isExtraMode
       ? thisMonthResidue
       : Math.max(0, myAccount.currentCashBalance) + Math.max(0, thisMonthResidue);
     const cmaMonthlyInterest =
@@ -679,6 +731,7 @@ export default function RealDbTower() {
     myAccount,
     inputBudget,
     isPanicBuyMode,
+    marketSignal,
     manualEdits,
     getRatios,
     ratioSum,
@@ -1111,6 +1164,15 @@ export default function RealDbTower() {
           <PanicBuyBanner onEnterPanicMode={() => setIsPanicBuyMode(true)} />
         )}
 
+        {/* 매수 시그널 대시보드 */}
+        {marketSignal && (
+          <MarketSignalSection
+            signal={marketSignal}
+            names={NAMES}
+            formatNum={formatNum}
+          />
+        )}
+
         <header className="flex flex-col justify-between items-start gap-4">
           <HeaderSection
             darkMode={darkMode}
@@ -1170,6 +1232,7 @@ export default function RealDbTower() {
           setManualEdits={setManualEdits}
           thisMonthResidue={thisMonthResidue}
           formatNum={formatNum}
+          marketSignal={marketSignal}
         />
 
         {/* 현재 보유 수량 / 평단 요약 */}

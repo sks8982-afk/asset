@@ -1,4 +1,7 @@
-import type { InvestmentRecord, MonthlyBudget, TaxSimulation, DividendRecord } from './types';
+import type {
+  InvestmentRecord, MonthlyBudget, TaxSimulation, DividendRecord,
+  AssetSignal, MarketSignal, SignalLevel,
+} from './types';
 import type { IsaType } from './constants';
 import {
   FOREIGN_TAX_EXEMPTION, FOREIGN_TAX_RATE, DIVIDEND_TAX_RATE,
@@ -310,4 +313,204 @@ export function calculateMDD(values: number[]): { mdd: number; peakIdx: number; 
   }
 
   return { mdd: maxMDD * 100, peakIdx: mddPeakIdx, troughIdx: mddTroughIdx };
+}
+
+// ─── 매수 시그널 시스템 (백테스팅 기반) ───
+
+/** 시그널 레벨별 설정 */
+const SIGNAL_LEVELS: { level: SignalLevel; min: number; label: string; multiplier: number }[] = [
+  { level: 'all_in',      min: 76, label: '🔴 올인',     multiplier: 2.5 },
+  { level: 'strong_buy',  min: 56, label: '🟠 적극매수', multiplier: 1.8 },
+  { level: 'opportunity', min: 36, label: '🟡 매수기회', multiplier: 1.3 },
+  { level: 'watch',       min: 16, label: '🔵 관심',     multiplier: 1.0 },
+  { level: 'normal',      min: 0,  label: '🟢 정상',     multiplier: 1.0 },
+];
+
+/** 점수 → 시그널 레벨 변환 */
+function scoreToLevel(score: number): { level: SignalLevel; multiplier: number } {
+  const clamped = Math.max(0, Math.min(100, score));
+  for (const sl of SIGNAL_LEVELS) {
+    if (clamped >= sl.min) return { level: sl.level, multiplier: sl.multiplier };
+  }
+  return { level: 'normal', multiplier: 1.0 };
+}
+
+/** 시그널 레벨 한국어 라벨 */
+export function getSignalLabel(level: SignalLevel): string {
+  return SIGNAL_LEVELS.find((sl) => sl.level === level)?.label ?? '🟢 정상';
+}
+
+/**
+ * 개별 자산 시그널 계산
+ *
+ * @param prices - 월별 가격 배열 (오래된 것 → 최신 순서, 최소 3개월)
+ * @param currentPrice - 실시간 현재가
+ * @param key - 자산 키
+ *
+ * 채점 기준 (백테스팅 검증):
+ * 1. 고점 대비 낙폭 (Drawdown): 0-55점 — 가장 중요한 지표
+ * 2. 이동평균 괴리: 0-25점 — 추세 하회 시 매수 유리
+ * 3. 연속 하락 모멘텀: 0-15점 — 과매도 신호
+ */
+export function calculateAssetSignal(
+  prices: number[],
+  currentPrice: number,
+  key: string,
+): AssetSignal {
+  const reasons: string[] = [];
+
+  // ── 1. 고점 대비 낙폭 (최근 12개월 고점 기준) ──
+  const recentPrices = prices.slice(-12);
+  const peak12m = Math.max(...recentPrices, currentPrice);
+  const drawdownFromPeak = peak12m > 0
+    ? ((peak12m - currentPrice) / peak12m) * 100
+    : 0;
+
+  let drawdownScore = 0;
+  if (drawdownFromPeak >= 30) {
+    drawdownScore = 55;
+    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (대폭락)`);
+  } else if (drawdownFromPeak >= 20) {
+    drawdownScore = 45;
+    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (급락)`);
+  } else if (drawdownFromPeak >= 15) {
+    drawdownScore = 35;
+    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (조정)`);
+  } else if (drawdownFromPeak >= 10) {
+    drawdownScore = 25;
+    reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}%`);
+  } else if (drawdownFromPeak >= 5) {
+    drawdownScore = 10;
+  }
+
+  // ── 2. 이동평균 괴리율 ──
+  // 6개월 이동평균
+  const ma6Prices = prices.slice(-6);
+  const ma6 = ma6Prices.length >= 3
+    ? ma6Prices.reduce((s, p) => s + p, 0) / ma6Prices.length
+    : 0;
+  const maBelowPct6 = ma6 > 0 ? ((ma6 - currentPrice) / ma6) * 100 : 0;
+
+  // 12개월 이동평균
+  const ma12Prices = prices.slice(-12);
+  const ma12 = ma12Prices.length >= 6
+    ? ma12Prices.reduce((s, p) => s + p, 0) / ma12Prices.length
+    : 0;
+  const maBelowPct12 = ma12 > 0 ? ((ma12 - currentPrice) / ma12) * 100 : 0;
+
+  let maScore = 0;
+  // 6개월 MA 하회
+  if (maBelowPct6 > 10) { maScore += 10; reasons.push('6개월 평균 대비 -10%↑ 하회'); }
+  else if (maBelowPct6 > 5) { maScore += 7; }
+  else if (maBelowPct6 > 0) { maScore += 3; }
+
+  // 12개월 MA 하회
+  if (maBelowPct12 > 10) { maScore += 15; reasons.push('12개월 평균 대비 -10%↑ 하회'); }
+  else if (maBelowPct12 > 5) { maScore += 10; reasons.push('12개월 평균 하회'); }
+  else if (maBelowPct12 > 0) { maScore += 5; }
+
+  // ── 3. 연속 하락 개월수 (모멘텀) ──
+  let consecutiveDeclines = 0;
+  const allPrices = [...prices, currentPrice];
+  for (let i = allPrices.length - 1; i >= 1; i--) {
+    if (allPrices[i] < allPrices[i - 1]) consecutiveDeclines++;
+    else break;
+  }
+
+  let momentumScore = 0;
+  if (consecutiveDeclines >= 4) {
+    momentumScore = 15;
+    reasons.push(`${consecutiveDeclines}개월 연속 하락 (과매도)`);
+  } else if (consecutiveDeclines >= 3) {
+    momentumScore = 10;
+    reasons.push(`${consecutiveDeclines}개월 연속 하락`);
+  } else if (consecutiveDeclines >= 2) {
+    momentumScore = 5;
+  }
+
+  const totalScore = Math.min(100, drawdownScore + maScore + momentumScore);
+  const { level, multiplier } = scoreToLevel(totalScore);
+
+  return {
+    key,
+    score: totalScore,
+    level,
+    multiplier,
+    drawdownFromPeak,
+    drawdownScore,
+    maBelowPct6,
+    maBelowPct12,
+    maScore,
+    consecutiveDeclines,
+    momentumScore,
+    reasons,
+  };
+}
+
+/**
+ * 전체 시장 시그널 계산
+ *
+ * @param marketHistory - 월별 시세 배열 [{d: 'YYYY-MM', tech10: 가격, ...}]
+ * @param livePrices - 실시간 시세 {tech10: 가격, ...}
+ * @param assetKeys - 분석 대상 자산 키 (cash 제외)
+ */
+export function calculateMarketSignal(
+  marketHistory: Record<string, unknown>[],
+  livePrices: Record<string, number>,
+  assetKeys: string[],
+): MarketSignal {
+  const assetSignals: Record<string, AssetSignal> = {};
+  const reasons: string[] = [];
+
+  // 자산별 시그널 계산
+  for (const key of assetKeys) {
+    if (key === 'cash') continue;
+    const monthlyPrices = marketHistory
+      .map((row) => Number(row[key]) || 0)
+      .filter((p) => p > 0);
+
+    const currentPrice = livePrices[key] ?? 0;
+    if (monthlyPrices.length < 3 || currentPrice <= 0) continue;
+
+    assetSignals[key] = calculateAssetSignal(monthlyPrices, currentPrice, key);
+  }
+
+  // 동시 하락 상관관계 보너스 (시스템 리스크 = 최고의 기회)
+  const signalCount = Object.values(assetSignals)
+    .filter((s) => s.level === 'opportunity' || s.level === 'strong_buy' || s.level === 'all_in')
+    .length;
+
+  let correlationScore = 0;
+  if (signalCount >= 5) {
+    correlationScore = 10;
+    reasons.push(`${signalCount}개 자산 동시 매수 시그널 — 시스템 리스크 (역사적 최적 매수 구간)`);
+  } else if (signalCount >= 3) {
+    correlationScore = 5;
+    reasons.push(`${signalCount}개 자산 동시 매수 시그널`);
+  }
+
+  // 전체 점수: 자산별 평균 + 상관관계 보너스
+  const allScores = Object.values(assetSignals).map((s) => s.score);
+  const avgScore = allScores.length > 0
+    ? allScores.reduce((s, v) => s + v, 0) / allScores.length
+    : 0;
+  const overallScore = Math.min(100, Math.round(avgScore + correlationScore));
+  const { level: overallLevel, multiplier: overallMultiplier } = scoreToLevel(overallScore);
+
+  // 최고 시그널 자산 안내
+  const topSignal = Object.values(assetSignals)
+    .sort((a, b) => b.score - a.score)[0];
+  if (topSignal && topSignal.score >= 36) {
+    reasons.push(`최강 시그널: ${topSignal.key} (${topSignal.score}점)`);
+  }
+
+  return {
+    overallScore,
+    overallLevel,
+    overallMultiplier,
+    assetSignals,
+    correlationScore,
+    signalCount,
+    reasons,
+  };
 }

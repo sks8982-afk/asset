@@ -172,6 +172,28 @@ export type MarketSignal = {
   reasons: string[];
 };
 
+// ─── 벤치마크 비교 ───
+
+/** 벤치마크 데이터 포인트 */
+export type BenchmarkPoint = {
+  date: string;
+  /** 내 포트폴리오 가치 */
+  myPortfolio: number;
+  /** 누적 원금 */
+  principal: number;
+  /** 벤치마크별 가상 포트폴리오 가치 */
+  [key: string]: string | number;
+};
+
+/** 벤치마크 최종 성과 */
+export type BenchmarkResult = {
+  key: string;
+  label: string;
+  finalValue: number;
+  totalReturn: number; // %
+  color: string;
+};
+
 /** 세금 시뮬레이션 결과 */
 export type TaxSimulation = {
   // ─── ISA 계좌 내 (손익통산 적용) ───

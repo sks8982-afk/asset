@@ -1,6 +1,7 @@
 import type {
   InvestmentRecord, MonthlyBudget, TaxSimulation, DividendRecord,
   AssetSignal, MarketSignal, SignalLevel,
+  BenchmarkPoint, BenchmarkResult,
 } from './types';
 import type { IsaType } from './constants';
 import {
@@ -313,6 +314,158 @@ export function calculateMDD(values: number[]): { mdd: number; peakIdx: number; 
   }
 
   return { mdd: maxMDD * 100, peakIdx: mddPeakIdx, troughIdx: mddTroughIdx };
+}
+
+// ─── 벤치마크 비교 시뮬레이션 ───
+
+/** 벤치마크 정의 */
+export const BENCHMARKS = [
+  { key: 'bm_snp',     label: 'S&P500 올인',        priceKey: 'snp',     color: '#3b82f6' },
+  { key: 'bm_nasdaq',  label: '나스닥100 올인',     priceKey: 'nasdaq',  color: '#8b5cf6' },
+  { key: 'bm_kodex',   label: 'KODEX200 올인',      priceKey: 'kodex200', color: '#ef4444' },
+  { key: 'bm_gold',    label: '금 올인',            priceKey: 'gold',    color: '#f59e0b' },
+  { key: 'bm_6040',    label: 'S&P 60 / 금 40',    priceKey: '__6040__', color: '#10b981' },
+] as const;
+
+/**
+ * 벤치마크 대비 수익률 비교 계산
+ *
+ * "같은 금액을 같은 시점에 입금했는데, 전부 [벤치마크]만 샀다면?"
+ *
+ * @param budgets - 실제 월별 입금 내역
+ * @param chartHistory - 내 포트폴리오 월별 가치 [{date, principal, investment}]
+ * @param marketHistory - 전체 월별 시세 [{d, snp, nasdaq, kodex200, gold, ...}]
+ * @param livePrices - 실시간 시세
+ */
+export function calculateBenchmarkComparison(
+  budgets: MonthlyBudget[],
+  chartHistory: { date: string; principal: number; investment: number }[],
+  marketHistory: Record<string, unknown>[],
+  livePrices: Record<string, number>,
+): { points: BenchmarkPoint[]; results: BenchmarkResult[] } {
+  if (chartHistory.length === 0 || budgets.length === 0) {
+    return { points: [], results: [] };
+  }
+
+  // 월별 시세를 date 기준 맵으로 변환
+  const priceByMonth: Record<string, Record<string, number>> = {};
+  for (const row of marketHistory) {
+    const d = String(row.d ?? '');
+    if (!d) continue;
+    const prices: Record<string, number> = {};
+    for (const bm of BENCHMARKS) {
+      if (bm.priceKey === '__6040__') continue;
+      prices[bm.priceKey] = Number(row[bm.priceKey]) || 0;
+    }
+    priceByMonth[d] = prices;
+  }
+
+  // 입금을 YYYY-MM 기준으로 합산
+  const depositByMonth: Record<string, number> = {};
+  for (const b of budgets) {
+    const ym = b.month_date.substring(0, 7);
+    depositByMonth[ym] = (depositByMonth[ym] ?? 0) + Number(b.amount ?? 0);
+  }
+
+  // 벤치마크별 누적 보유수량 추적
+  const holdings: Record<string, number> = {};
+  // 60/40은 두 자산의 수량을 별도 추적
+  let holdings6040Snp = 0;
+  let holdings6040Gold = 0;
+
+  for (const bm of BENCHMARKS) {
+    if (bm.priceKey !== '__6040__') holdings[bm.key] = 0;
+  }
+
+  const points: BenchmarkPoint[] = [];
+
+  for (const ch of chartHistory) {
+    const ym = ch.date;
+    const deposit = depositByMonth[ym] ?? 0;
+    const monthPrices = priceByMonth[ym];
+
+    // 이번 달 입금으로 벤치마크 매수
+    if (deposit > 0 && monthPrices) {
+      for (const bm of BENCHMARKS) {
+        if (bm.priceKey === '__6040__') {
+          // 60% S&P, 40% Gold
+          const snpPrice = monthPrices['snp'] || 0;
+          const goldPrice = monthPrices['gold'] || 0;
+          if (snpPrice > 0) holdings6040Snp += (deposit * 0.6) / snpPrice;
+          if (goldPrice > 0) holdings6040Gold += (deposit * 0.4) / goldPrice;
+        } else {
+          const price = monthPrices[bm.priceKey] || 0;
+          if (price > 0) holdings[bm.key] += deposit / price;
+        }
+      }
+    }
+
+    // 현재 평가액 계산 (해당 월 시세 기준)
+    const point: BenchmarkPoint = {
+      date: ym,
+      myPortfolio: ch.investment,
+      principal: ch.principal,
+    };
+
+    for (const bm of BENCHMARKS) {
+      if (bm.priceKey === '__6040__') {
+        const snpP = monthPrices?.['snp'] || 0;
+        const goldP = monthPrices?.['gold'] || 0;
+        point[bm.key] = holdings6040Snp * snpP + holdings6040Gold * goldP;
+      } else {
+        const price = monthPrices?.[bm.priceKey] || 0;
+        point[bm.key] = holdings[bm.key] * price;
+      }
+    }
+
+    points.push(point);
+  }
+
+  // 마지막 포인트를 실시간 시세로 보정
+  if (points.length > 0 && livePrices) {
+    const last = { ...points[points.length - 1] };
+    for (const bm of BENCHMARKS) {
+      if (bm.priceKey === '__6040__') {
+        const snpLive = livePrices['snp'] || 0;
+        const goldLive = livePrices['gold'] || 0;
+        last[bm.key] = holdings6040Snp * snpLive + holdings6040Gold * goldLive;
+      } else {
+        const liveP = livePrices[bm.priceKey] || 0;
+        if (liveP > 0) last[bm.key] = holdings[bm.key] * liveP;
+      }
+    }
+    points[points.length - 1] = last;
+  }
+
+  // 최종 성과 요약
+  const lastPoint = points[points.length - 1];
+  const totalPrincipal = lastPoint?.principal ?? 0;
+
+  const results: BenchmarkResult[] = [
+    {
+      key: 'myPortfolio',
+      label: '내 포트폴리오',
+      finalValue: Number(lastPoint?.myPortfolio ?? 0),
+      totalReturn: totalPrincipal > 0
+        ? (Number(lastPoint?.myPortfolio ?? 0) / totalPrincipal - 1) * 100
+        : 0,
+      color: '#0f172a',
+    },
+    ...BENCHMARKS.map((bm) => ({
+      key: bm.key,
+      label: bm.label,
+      finalValue: Number(lastPoint?.[bm.key] ?? 0),
+      totalReturn: totalPrincipal > 0
+        ? (Number(lastPoint?.[bm.key] ?? 0) / totalPrincipal - 1) * 100
+        : 0,
+      color: bm.color,
+    })),
+  ];
+
+  // 수익률 높은 순 정렬
+  results.sort((a, b) => b.totalReturn - a.totalReturn);
+
+  return { points, results };
 }
 
 // ─── 매수 시그널 시스템 (백테스팅 기반) ───

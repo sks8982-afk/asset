@@ -10,7 +10,7 @@ import {
   getRecordAmount, getRecordQty, filterBuyRecords, filterSellRecords,
   getCumulativeInterestByMonths, getInterestFromMonthStartToToday,
   formatNum, formatDec, calculateRealizedPnl, calculateTaxSimulation,
-  estimateGoalDate, calculateMDD, calculateMarketSignal,
+  estimateGoalDate, calculateMDD, calculateMarketSignal, calculateBenchmarkComparison,
 } from '@/lib/utils';
 import { HeaderSection } from './components/HeaderSection';
 import { HoldingsSummarySection } from './components/HoldingsSummarySection';
@@ -35,6 +35,7 @@ import { TaxSimulationSection } from './components/TaxSimulationSection';
 import { GoalProjectionSection } from './components/GoalProjectionSection';
 import { ExchangeRateSection } from './components/ExchangeRateSection';
 import { MarketSignalSection } from './components/MarketSignalSection';
+import { BenchmarkComparisonSection } from './components/BenchmarkComparisonSection';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useState(() =>
@@ -793,6 +794,23 @@ export default function RealDbTower() {
     return calculateMDD(values).mdd;
   }, [myAccount]);
 
+  // 벤치마크 대비 수익률 비교
+  const benchmarkData = useMemo(() => {
+    if (!myAccount || !fullMarketHistory.length || !livePrices) {
+      return { points: [], results: [] };
+    }
+    return calculateBenchmarkComparison(
+      dbHistory.budgets,
+      myAccount.chartHistory.map((p) => ({
+        date: p.date,
+        principal: Number(p.principal ?? 0),
+        investment: Number(p.investment ?? 0),
+      })),
+      fullMarketHistory,
+      livePrices,
+    );
+  }, [myAccount, fullMarketHistory, livePrices, dbHistory.budgets]);
+
   useEffect(() => {
     if (!myAccount || goalToast) return;
     const roi =
@@ -1331,6 +1349,14 @@ export default function RealDbTower() {
             currentPriceMap={currentPriceMap}
           />
         </div>
+
+        {/* 벤치마크 대비 수익률 비교 */}
+        <BenchmarkComparisonSection
+          points={benchmarkData.points}
+          results={benchmarkData.results}
+          formatNum={formatNum}
+          darkMode={darkMode}
+        />
 
         <InvestmentHistorySection
           open={showHistory}

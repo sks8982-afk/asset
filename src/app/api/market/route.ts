@@ -117,7 +117,31 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ history, latest });
+    // ── 주요 지수 실시간 시세 (참고용) ──
+    const indices: Record<string, { price: number; change: number; changePct: number }> = {};
+    const indexSymbols: Record<string, string> = {
+      kospi: '^KS11',     // 코스피
+      kosdaq: '^KQ11',    // 코스닥
+      sp500: '^GSPC',     // S&P 500
+      nasdaq_idx: '^IXIC', // 나스닥 종합
+      dow: '^DJI',        // 다우존스
+    };
+    for (const [key, symbol] of Object.entries(indexSymbols)) {
+      try {
+        const q: any = await yf.quote(symbol);
+        if (q && typeof q.regularMarketPrice === 'number') {
+          indices[key] = {
+            price: q.regularMarketPrice,
+            change: q.regularMarketChange ?? 0,
+            changePct: q.regularMarketChangePercent ?? 0,
+          };
+        }
+      } catch {
+        // 지수 조회 실패 시 무시
+      }
+    }
+
+    return NextResponse.json({ history, latest, indices });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

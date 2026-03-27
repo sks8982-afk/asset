@@ -5,12 +5,23 @@ import { Activity, TrendingDown, ChevronDown, ChevronUp, RefreshCcw } from 'luci
 import type { MarketSignal, SignalLevel } from '@/lib/types';
 import { getSignalLabel, getAssetRiskProfile } from '@/lib/utils';
 
+type IndexData = { price: number; change: number; changePct: number };
+
 type MarketSignalSectionProps = {
   signal: MarketSignal;
   names: Record<string, string>;
   formatNum: (n: number) => string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  indices?: Record<string, IndexData>;
+};
+
+const INDEX_LABELS: Record<string, string> = {
+  kospi: 'KOSPI',
+  kosdaq: 'KOSDAQ',
+  sp500: 'S&P 500',
+  nasdaq_idx: 'NASDAQ',
+  dow: 'DOW',
 };
 
 const LEVEL_STYLES: Record<SignalLevel, { bg: string; border: string; text: string; glow: string }> = {
@@ -29,7 +40,7 @@ const SCORE_BAR_COLOR: Record<SignalLevel, string> = {
   all_in:      'bg-rose-500',
 };
 
-export function MarketSignalSection({ signal, names, formatNum, onRefresh, isRefreshing }: MarketSignalSectionProps) {
+export function MarketSignalSection({ signal, names, formatNum, onRefresh, isRefreshing, indices }: MarketSignalSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const style = LEVEL_STYLES[signal.overallLevel];
 
@@ -72,6 +83,31 @@ export function MarketSignalSection({ signal, names, formatNum, onRefresh, isRef
           )}
         </div>
       </div>
+
+      {/* 주요 지수 현황 */}
+      {indices && Object.keys(indices).length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-5">
+          {Object.entries(INDEX_LABELS).map(([key, label]) => {
+            const idx = indices[key];
+            if (!idx) return null;
+            const isUp = idx.changePct >= 0;
+            return (
+              <div
+                key={key}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-600"
+              >
+                <span className="text-[10px] font-black text-slate-400">{label}</span>
+                <span className="text-[11px] font-black text-slate-700 dark:text-slate-200">
+                  {idx.price >= 1000 ? idx.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : idx.price.toFixed(2)}
+                </span>
+                <span className={`text-[10px] font-bold ${isUp ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  {isUp ? '▲' : '▼'}{Math.abs(idx.changePct).toFixed(2)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* 종합 시그널 바 */}
       <div className="mb-6">

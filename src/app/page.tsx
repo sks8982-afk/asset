@@ -46,6 +46,7 @@ export default function RealDbTower() {
   const [marketData, setMarketData] = useState<any[]>([]);
   const [fullMarketHistory, setFullMarketHistory] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<any | null>(null);
+  const [marketIndices, setMarketIndices] = useState<Record<string, { price: number; change: number; changePct: number }>>({});
   const [dbHistory, setDbHistory] = useState<DbHistory>({
     budgets: [], records: [], batchSummaries: [], snapshots: [], dividends: [],
   });
@@ -142,12 +143,13 @@ export default function RealDbTower() {
         setMarketData(payload.filter((d) => d.d >= '2025-01'));
         setLivePrices(payload[payload.length - 1] || null);
       } else {
-        const { history, latest } = payload;
+        const { history, latest, indices } = payload;
         if (Array.isArray(history)) {
           setFullMarketHistory(history);
           setMarketData(history.filter((d: any) => d.d >= '2025-01'));
         }
         setLivePrices(latest || null);
+        if (indices) setMarketIndices(indices);
       }
       const { data: bData } = await supabase
         .from('monthly_budgets')
@@ -1211,6 +1213,7 @@ export default function RealDbTower() {
             formatNum={formatNum}
             onRefresh={loadAllData}
             isRefreshing={isRefreshingPrice}
+            indices={marketIndices}
           />
         )}
 

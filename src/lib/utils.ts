@@ -343,7 +343,7 @@ export function calculateBenchmarkComparison(
   marketHistory: Record<string, unknown>[],
   livePrices: Record<string, number>,
 ): { points: BenchmarkPoint[]; results: BenchmarkResult[] } {
-  if (chartHistory.length === 0 || budgets.length === 0) {
+  if (budgets.length === 0 || marketHistory.length === 0) {
     return { points: [], results: [] };
   }
 
@@ -367,28 +367,44 @@ export function calculateBenchmarkComparison(
     depositByMonth[ym] = (depositByMonth[ym] ?? 0) + Number(b.amount ?? 0);
   }
 
+  // 내 포트폴리오 데이터를 date 기준 맵으로 변환
+  const myDataByMonth: Record<string, { principal: number; investment: number }> = {};
+  for (const ch of chartHistory) {
+    myDataByMonth[ch.date] = { principal: ch.principal, investment: ch.investment };
+  }
+
+  // 시뮬레이션 기간: 첫 입금월 ~ 마지막 시세월
+  // (chartHistory가 아닌 budgets + marketHistory 기준으로 독립 계산)
+  const allMonths = marketHistory
+    .map((row) => String(row.d ?? ''))
+    .filter((d) => d.length >= 7)
+    .sort();
+  const firstDepositMonth = Object.keys(depositByMonth).sort()[0];
+  if (!firstDepositMonth || allMonths.length === 0) {
+    return { points: [], results: [] };
+  }
+  const relevantMonths = allMonths.filter((m) => m >= firstDepositMonth);
+
   // 벤치마크별 누적 보유수량 추적
   const holdings: Record<string, number> = {};
-  // 60/40은 두 자산의 수량을 별도 추적
   let holdings6040Snp = 0;
   let holdings6040Gold = 0;
-
   for (const bm of BENCHMARKS) {
     if (bm.priceKey !== '__6040__') holdings[bm.key] = 0;
   }
 
+  let cumulativePrincipal = 0;
   const points: BenchmarkPoint[] = [];
 
-  for (const ch of chartHistory) {
-    const ym = ch.date;
+  for (const ym of relevantMonths) {
     const deposit = depositByMonth[ym] ?? 0;
+    cumulativePrincipal += deposit;
     const monthPrices = priceByMonth[ym];
 
     // 이번 달 입금으로 벤치마크 매수
     if (deposit > 0 && monthPrices) {
       for (const bm of BENCHMARKS) {
         if (bm.priceKey === '__6040__') {
-          // 60% S&P, 40% Gold
           const snpPrice = monthPrices['snp'] || 0;
           const goldPrice = monthPrices['gold'] || 0;
           if (snpPrice > 0) holdings6040Snp += (deposit * 0.6) / snpPrice;
@@ -400,11 +416,16 @@ export function calculateBenchmarkComparison(
       }
     }
 
-    // 현재 평가액 계산 (해당 월 시세 기준)
+    // 내 포트폴리오 가치 (chartHistory에 있으면 사용, 없으면 원금만)
+    const myData = myDataByMonth[ym];
+    const myPortfolio = myData?.investment ?? cumulativePrincipal;
+    const principal = myData?.principal ?? cumulativePrincipal;
+
+    // 벤치마크 평가액 계산
     const point: BenchmarkPoint = {
       date: ym,
-      myPortfolio: ch.investment,
-      principal: ch.principal,
+      myPortfolio,
+      principal,
     };
 
     for (const bm of BENCHMARKS) {
@@ -424,6 +445,12 @@ export function calculateBenchmarkComparison(
   // 마지막 포인트를 실시간 시세로 보정
   if (points.length > 0 && livePrices) {
     const last = { ...points[points.length - 1] };
+    // 내 포트폴리오도 최신 chartHistory 값으로 보정
+    const lastChart = chartHistory[chartHistory.length - 1];
+    if (lastChart) {
+      last.myPortfolio = lastChart.investment;
+      last.principal = lastChart.principal;
+    }
     for (const bm of BENCHMARKS) {
       if (bm.priceKey === '__6040__') {
         const snpLive = livePrices['snp'] || 0;

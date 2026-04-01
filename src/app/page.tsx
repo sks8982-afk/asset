@@ -812,13 +812,13 @@ export default function RealDbTower() {
     return calculateMDD(values).mdd;
   }, [myAccount]);
 
-  // 벤치마크 대비 수익률 비교
+  // 벤치마크 대비 수익률 비교 (실제 매수 기록 기반)
   const benchmarkData = useMemo(() => {
     if (!myAccount || !fullMarketHistory.length || !livePrices) {
       return { points: [], results: [] };
     }
     return calculateBenchmarkComparison(
-      dbHistory.budgets,
+      dbHistory.records,
       myAccount.chartHistory.map((p) => ({
         date: p.date,
         principal: Number(p.principal ?? 0),
@@ -827,7 +827,7 @@ export default function RealDbTower() {
       fullMarketHistory,
       livePrices,
     );
-  }, [myAccount, fullMarketHistory, livePrices, dbHistory.budgets]);
+  }, [myAccount, fullMarketHistory, livePrices, dbHistory.records]);
 
   useEffect(() => {
     if (!myAccount || goalToast) return;

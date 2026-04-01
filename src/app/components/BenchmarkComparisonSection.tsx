@@ -34,7 +34,7 @@ export function BenchmarkComparisonSection({
   const [expanded, setExpanded] = useState(false);
   const [hiddenLines, setHiddenLines] = useState<Record<string, boolean>>({});
 
-  if (points.length < 2) return null;
+  if (points.length === 0 || results.length === 0) return null;
 
   const myResult = results.find((r) => r.key === 'myPortfolio');
   const bestResult = results[0];

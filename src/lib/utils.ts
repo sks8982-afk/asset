@@ -330,20 +330,22 @@ export const BENCHMARKS = [
 /**
  * 벤치마크 대비 수익률 비교 계산
  *
- * "같은 금액을 같은 시점에 입금했는데, 전부 [벤치마크]만 샀다면?"
+ * 핵심: "내가 실제로 매수한 금액을, 같은 시점에 [벤치마크]만 샀다면?"
+ * - 실제 investment_records의 매수 금액·시점 사용 (입금액 X, 실제 투자액 O)
+ * - 벤치마크 매수 시세는 해당 월 시세 사용
  *
- * @param budgets - 실제 월별 입금 내역
+ * @param records - 실제 매수/매도 기록 (investment_records)
  * @param chartHistory - 내 포트폴리오 월별 가치 [{date, principal, investment}]
  * @param marketHistory - 전체 월별 시세 [{d, snp, nasdaq, kodex200, gold, ...}]
  * @param livePrices - 실시간 시세
  */
 export function calculateBenchmarkComparison(
-  budgets: MonthlyBudget[],
+  _records: InvestmentRecord[],
   chartHistory: { date: string; principal: number; investment: number }[],
   marketHistory: Record<string, unknown>[],
   livePrices: Record<string, number>,
 ): { points: BenchmarkPoint[]; results: BenchmarkResult[] } {
-  if (budgets.length === 0 || marketHistory.length === 0) {
+  if (chartHistory.length === 0 || marketHistory.length === 0) {
     return { points: [], results: [] };
   }
 
@@ -360,11 +362,18 @@ export function calculateBenchmarkComparison(
     priceByMonth[d] = prices;
   }
 
-  // 입금을 YYYY-MM 기준으로 합산
+  // 입금액 기준 월별 투입액 (chartHistory의 principal 차분)
+  // principal은 누적 입금액이므로, 이전 달과의 차이가 해당 월 입금액
   const depositByMonth: Record<string, number> = {};
-  for (const b of budgets) {
-    const ym = b.month_date.substring(0, 7);
-    depositByMonth[ym] = (depositByMonth[ym] ?? 0) + Number(b.amount ?? 0);
+  const sortedChart = [...chartHistory].sort((a, b) => a.date.localeCompare(b.date));
+  let prevPrincipal = 0;
+  for (const ch of sortedChart) {
+    const ym = ch.date.substring(0, 7);
+    const monthDeposit = ch.principal - prevPrincipal;
+    if (monthDeposit > 0) {
+      depositByMonth[ym] = monthDeposit;
+    }
+    prevPrincipal = ch.principal;
   }
 
   // 내 포트폴리오 데이터를 date 기준 맵으로 변환
@@ -373,8 +382,7 @@ export function calculateBenchmarkComparison(
     myDataByMonth[ch.date] = { principal: ch.principal, investment: ch.investment };
   }
 
-  // 시뮬레이션 기간: 첫 입금월 ~ 마지막 시세월
-  // (chartHistory가 아닌 budgets + marketHistory 기준으로 독립 계산)
+  // 차트 범위: chartHistory 시작점부터 (그래프 모양 유지)
   const allMonths = marketHistory
     .map((row) => String(row.d ?? ''))
     .filter((d) => d.length >= 7)
@@ -383,7 +391,11 @@ export function calculateBenchmarkComparison(
   if (!firstDepositMonth || allMonths.length === 0) {
     return { points: [], results: [] };
   }
-  const relevantMonths = allMonths.filter((m) => m >= firstDepositMonth);
+  const chartStartMonth = sortedChart[0].date.substring(0, 7);
+  const startMonth = chartStartMonth < firstDepositMonth
+    ? chartStartMonth
+    : firstDepositMonth;
+  const relevantMonths = allMonths.filter((m) => m.substring(0, 7) >= startMonth);
 
   // 벤치마크별 누적 보유수량 추적
   const holdings: Record<string, number> = {};
@@ -393,15 +405,15 @@ export function calculateBenchmarkComparison(
     if (bm.priceKey !== '__6040__') holdings[bm.key] = 0;
   }
 
-  let cumulativePrincipal = 0;
+  let cumulativeDeposit = 0; // 누적 입금액
   const points: BenchmarkPoint[] = [];
 
   for (const ym of relevantMonths) {
     const deposit = depositByMonth[ym] ?? 0;
-    cumulativePrincipal += deposit;
+    cumulativeDeposit += deposit;
     const monthPrices = priceByMonth[ym];
 
-    // 이번 달 입금으로 벤치마크 매수
+    // 이번 달 입금액으로 벤치마크 매수
     if (deposit > 0 && monthPrices) {
       for (const bm of BENCHMARKS) {
         if (bm.priceKey === '__6040__') {
@@ -416,16 +428,12 @@ export function calculateBenchmarkComparison(
       }
     }
 
-    // 내 포트폴리오 가치 (chartHistory에 있으면 사용, 없으면 원금만)
+    // 내 포트폴리오 월별 가치
     const myData = myDataByMonth[ym];
-    const myPortfolio = myData?.investment ?? cumulativePrincipal;
-    const principal = myData?.principal ?? cumulativePrincipal;
-
-    // 벤치마크 평가액 계산
     const point: BenchmarkPoint = {
       date: ym,
-      myPortfolio,
-      principal,
+      myPortfolio: myData?.investment ?? (cumulativeDeposit > 0 ? cumulativeDeposit : 0),
+      principal: myData?.principal ?? cumulativeDeposit,
     };
 
     for (const bm of BENCHMARKS) {
@@ -442,26 +450,58 @@ export function calculateBenchmarkComparison(
     points.push(point);
   }
 
-  // 마지막 포인트를 실시간 시세로 보정
-  if (points.length > 0 && livePrices) {
-    const last = { ...points[points.length - 1] };
-    // 내 포트폴리오도 최신 chartHistory 값으로 보정
-    const lastChart = chartHistory[chartHistory.length - 1];
-    if (lastChart) {
-      last.myPortfolio = lastChart.investment;
-      last.principal = lastChart.principal;
-    }
-    for (const bm of BENCHMARKS) {
-      if (bm.priceKey === '__6040__') {
-        const snpLive = livePrices['snp'] || 0;
-        const goldLive = livePrices['gold'] || 0;
-        last[bm.key] = holdings6040Snp * snpLive + holdings6040Gold * goldLive;
-      } else {
-        const liveP = livePrices[bm.priceKey] || 0;
-        if (liveP > 0) last[bm.key] = holdings[bm.key] * liveP;
+  // ── 히스토리에 없는 월의 잔여 입금 처리 (실시간 시세로 매수) ──
+  const lastHistoryMonth = relevantMonths[relevantMonths.length - 1] ?? '';
+  const remainingMonths = Object.keys(depositByMonth)
+    .filter((ym) => ym > lastHistoryMonth.substring(0, 7))
+    .sort();
+
+  for (const ym of remainingMonths) {
+    const deposit = depositByMonth[ym] ?? 0;
+    if (deposit <= 0) continue;
+    cumulativeDeposit += deposit;
+    if (livePrices) {
+      for (const bm of BENCHMARKS) {
+        if (bm.priceKey === '__6040__') {
+          const snpP = livePrices['snp'] || 0;
+          const goldP = livePrices['gold'] || 0;
+          if (snpP > 0) holdings6040Snp += (deposit * 0.6) / snpP;
+          if (goldP > 0) holdings6040Gold += (deposit * 0.4) / goldP;
+        } else {
+          const price = livePrices[bm.priceKey] || 0;
+          if (price > 0) holdings[bm.key] += deposit / price;
+        }
       }
     }
-    points[points.length - 1] = last;
+  }
+
+  // ── 마지막 포인트: 실시간 시세 기준 "오늘" ──
+  if (livePrices) {
+    const currentYM = new Date().toISOString().slice(0, 7);
+    const lastChart = sortedChart[sortedChart.length - 1];
+    // 총 입금액 = chartHistory 마지막 principal
+    const totalDeposit = lastChart?.principal ?? cumulativeDeposit;
+    const todayPoint: BenchmarkPoint = {
+      date: currentYM,
+      myPortfolio: lastChart?.investment ?? totalDeposit,
+      principal: totalDeposit,
+    };
+
+    for (const bm of BENCHMARKS) {
+      if (bm.priceKey === '__6040__') {
+        todayPoint[bm.key] = holdings6040Snp * (livePrices['snp'] || 0)
+          + holdings6040Gold * (livePrices['gold'] || 0);
+      } else {
+        const liveP = livePrices[bm.priceKey] || 0;
+        todayPoint[bm.key] = liveP > 0 ? holdings[bm.key] * liveP : 0;
+      }
+    }
+
+    if (points.length > 0 && points[points.length - 1].date === currentYM) {
+      points[points.length - 1] = todayPoint;
+    } else {
+      points.push(todayPoint);
+    }
   }
 
   // 최종 성과 요약

@@ -57,6 +57,12 @@ import { EmotionJournalSection } from './components/EmotionJournalSection';
 import { ProfitTakingGuideSection } from './components/ProfitTakingGuideSection';
 import { GoalScenariosSection } from './components/GoalScenariosSection';
 import { DataIntegritySection } from './components/DataIntegritySection';
+import { RiskAdjustedReturnSection } from './components/RiskAdjustedReturnSection';
+import { CorrelationMatrixSection } from './components/CorrelationMatrixSection';
+import { DCAFrequencySection } from './components/DCAFrequencySection';
+import { StrategyRecommendationSection } from './components/StrategyRecommendationSection';
+import { ThemeExposureSection } from './components/ThemeExposureSection';
+import { TradingFrequencyMonitor } from './components/TradingFrequencyMonitor';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useLocalStorageNumber(STORAGE_KEYS.budget, 1300000, 1);
@@ -1062,6 +1068,17 @@ export default function RealDbTower() {
         {/* 투자 규칙 (IPS) — 감정 방어 */}
         <InvestmentPolicySection />
 
+        {/* 거래 빈도 경고 (Barber-Odean) */}
+        <TradingFrequencyMonitor records={dbHistory.records} />
+
+        {/* 20년차 애널리스트 전략 추천 */}
+        <StrategyRecommendationSection
+          totalAsset={totalAsset}
+          monthlyBudget={inputBudget}
+          portfolio={portfolio}
+          formatNum={formatNum}
+        />
+
         {/* 연속 적립 스트릭 */}
         <InvestmentStreakSection budgets={dbHistory.budgets} />
 
@@ -1183,6 +1200,19 @@ export default function RealDbTower() {
           formatNum={formatNum}
         />
 
+        {/* 실제 테마·지역 노출 */}
+        <ThemeExposureSection
+          portfolio={portfolio}
+          totalAsset={totalAsset}
+        />
+
+        {/* 상관계수 매트릭스 */}
+        <CorrelationMatrixSection
+          marketHistory={fullMarketHistory}
+          names={NAMES}
+          portfolio={portfolio}
+        />
+
         {/* 명목 vs 실질 수익률 */}
         <RealReturnSection
           totalAsset={totalAsset}
@@ -1281,6 +1311,18 @@ export default function RealDbTower() {
           results={benchmarkData.results}
           formatNum={formatNum}
           darkMode={darkMode}
+        />
+
+        {/* 리스크 조정 수익 (샤프/소르티노/칼마) */}
+        <RiskAdjustedReturnSection
+          chartHistory={chartHistory}
+        />
+
+        {/* DCA 주기 비교 (매일/매주/매달) */}
+        <DCAFrequencySection
+          marketHistory={fullMarketHistory}
+          monthlyBudget={inputBudget}
+          formatNum={formatNum}
         />
 
         {/* "만약 그때 매도했다면?" 시뮬레이터 — 감정 매도 학습 */}

@@ -10,6 +10,7 @@ import { useCustomRatios } from './hooks/useCustomRatios';
 import { useRebalancingHistory } from './hooks/useRebalancingHistory';
 import { useQuarterlyRebalancingBanner } from './hooks/useQuarterlyBanner';
 import { useAppData } from './hooks/useAppData';
+import { useHideReturns } from './hooks/useHideReturns';
 import { toast } from './hooks/useToast';
 import { ToastContainer } from './components/ToastContainer';
 import {
@@ -50,6 +51,12 @@ import { InvestmentPolicySection } from './components/InvestmentPolicySection';
 import { InvestmentStreakSection } from './components/InvestmentStreakSection';
 import { WhatIfSection } from './components/WhatIfSection';
 import { SignalAlertBanner } from './components/SignalAlertBanner';
+import { TaxLossHarvestingSection } from './components/TaxLossHarvestingSection';
+import { RealReturnSection } from './components/RealReturnSection';
+import { EmotionJournalSection } from './components/EmotionJournalSection';
+import { ProfitTakingGuideSection } from './components/ProfitTakingGuideSection';
+import { GoalScenariosSection } from './components/GoalScenariosSection';
+import { DataIntegritySection } from './components/DataIntegritySection';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useLocalStorageNumber(STORAGE_KEYS.budget, 1300000, 1);
@@ -60,6 +67,7 @@ export default function RealDbTower() {
   const [customRatios, setCustomRatios] = useCustomRatios();
   const [rebalancingHistory, setRebalancingHistory] = useRebalancingHistory();
   const [showRebalancingQuarterBanner, setShowRebalancingQuarterBanner] = useQuarterlyRebalancingBanner();
+  const [hideReturns, setHideReturns] = useHideReturns();
 
   const {
     loading,
@@ -1057,6 +1065,12 @@ export default function RealDbTower() {
         {/* 연속 적립 스트릭 */}
         <InvestmentStreakSection budgets={dbHistory.budgets} />
 
+        {/* 감정 일기 */}
+        <EmotionJournalSection
+          totalAsset={totalAsset}
+          formatNum={formatNum}
+        />
+
         {isCrash && !isPanicBuyMode && (
           <PanicBuyBanner onEnterPanicMode={() => setIsPanicBuyMode(true)} />
         )}
@@ -1098,6 +1112,8 @@ export default function RealDbTower() {
             totalInvested={totalInvested}
             totalAsset={totalAsset}
             totalRoi={totalRoi}
+            hideReturns={hideReturns}
+            onToggleHideReturns={() => setHideReturns(!hideReturns)}
           />
         </header>
 
@@ -1155,6 +1171,28 @@ export default function RealDbTower() {
           formatNum={formatNum}
           formatDec={formatDec}
           currentPriceMap={currentPriceMap}
+        />
+
+        {/* 익절 가이드 (비중 초과 + ROI 50%↑) */}
+        <ProfitTakingGuideSection
+          portfolio={portfolio}
+          targetRatios={getRatios()}
+          currentPriceMap={currentPriceMap}
+          names={NAMES}
+          totalAsset={totalAsset}
+          formatNum={formatNum}
+        />
+
+        {/* 명목 vs 실질 수익률 */}
+        <RealReturnSection
+          totalAsset={totalAsset}
+          totalInvested={totalInvested}
+          totalDividends={myAccount.totalDividends ?? 0}
+          cumulativeCmaInterest={myAccount.cumulativeCmaInterestToToday ?? 0}
+          oldestDepositDate={
+            dbHistory.budgets[0]?.month_date ?? new Date().toISOString().slice(0, 10)
+          }
+          formatNum={formatNum}
         />
 
         {showRebalancingQuarterBanner && (
@@ -1292,6 +1330,15 @@ export default function RealDbTower() {
           currentYear={new Date().getFullYear()}
         />
 
+        {/* Tax-Loss Harvesting 알림 */}
+        <TaxLossHarvestingSection
+          records={dbHistory.records}
+          portfolio={portfolio}
+          currentPriceMap={currentPriceMap}
+          names={NAMES}
+          formatNum={formatNum}
+        />
+
         {/* 환율 영향 분석 */}
         <ExchangeRateSection
           currentExchangeRate={currentExchangeRate}
@@ -1316,6 +1363,22 @@ export default function RealDbTower() {
           formatNum={formatNum}
           estimateGoalDate={estimateGoalDate}
           mdd={mddValue}
+        />
+
+        {/* 3가지 시나리오 목표 */}
+        <GoalScenariosSection
+          totalAsset={totalAsset}
+          monthlyDeposit={inputBudget}
+          goalAsset={goalAsset}
+          formatNum={formatNum}
+        />
+
+        {/* 데이터 무결성 점검 */}
+        <DataIntegritySection
+          records={dbHistory.records}
+          batchSummaries={dbHistory.batchSummaries}
+          budgets={dbHistory.budgets}
+          formatNum={formatNum}
         />
 
         {/* 매도 기록 모달 */}

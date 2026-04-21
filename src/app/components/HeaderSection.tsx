@@ -1,6 +1,8 @@
 import React from 'react';
 import {
   Download,
+  Eye,
+  EyeOff,
   Moon,
   RefreshCcw,
   Settings,
@@ -22,6 +24,8 @@ export type HeaderSectionProps = {
   totalInvested: number;
   totalAsset: number;
   totalRoi: number;
+  hideReturns?: boolean;
+  onToggleHideReturns?: () => void;
 };
 
 export function HeaderSection({
@@ -37,8 +41,11 @@ export function HeaderSection({
   totalInvested,
   totalAsset,
   totalRoi,
+  hideReturns = false,
+  onToggleHideReturns,
 }: HeaderSectionProps) {
   const formatNum = (n: number) => Math.floor(n).toLocaleString();
+  const mask = (s: string) => (hideReturns ? '***' : s);
 
   return (
     <>
@@ -61,6 +68,15 @@ export function HeaderSection({
         >
           {darkMode ? <Sun size={20} /> : <Moon size={20} />}
         </button>
+        {onToggleHideReturns && (
+          <button
+            onClick={onToggleHideReturns}
+            className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+            title={hideReturns ? '수익률 보이기' : '수익률 숨기기'}
+          >
+            {hideReturns ? <EyeOff size={20} /> : <Eye size={20} />}
+          </button>
+        )}
         <button
           onClick={onExportCSV}
           className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
@@ -122,7 +138,7 @@ export function HeaderSection({
               투자 총액
             </p>
             <p className="text-2xl font-black italic">
-              {formatNum(totalInvested)}원
+              {mask(formatNum(totalInvested))}원
             </p>
           </div>
           <div className="text-right border-r border-white/10 px-6">
@@ -130,7 +146,7 @@ export function HeaderSection({
               순자산 총액
             </p>
             <p className="text-2xl font-black italic">
-              {formatNum(totalAsset)}원
+              {mask(formatNum(totalAsset))}원
             </p>
           </div>
           <div className="text-right pl-4">
@@ -142,8 +158,7 @@ export function HeaderSection({
                 totalRoi >= 0 ? 'text-blue-400' : 'text-rose-400'
               }`}
             >
-              {totalRoi > 0 ? '+' : ''}
-              {totalRoi.toFixed(1)}%
+              {hideReturns ? '***' : `${totalRoi > 0 ? '+' : ''}${totalRoi.toFixed(1)}%`}
             </p>
           </div>
         </div>

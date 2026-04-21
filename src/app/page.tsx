@@ -1,7 +1,15 @@
 'use client';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { DbHistory, DividendRecord, MarketSignal } from '@/lib/types';
+import type {
+  DividendRecord, MarketSignal, BuyGuideItem,
+} from '@/lib/types';
+import { useDarkMode } from './hooks/useDarkMode';
+import { useLocalStorageNumber } from './hooks/useLocalStorageNumber';
+import { useCustomRatios } from './hooks/useCustomRatios';
+import { useRebalancingHistory } from './hooks/useRebalancingHistory';
+import { useQuarterlyRebalancingBanner } from './hooks/useQuarterlyBanner';
+import { useAppData } from './hooks/useAppData';
 import {
   STORAGE_KEYS, COLORS, NAMES, DEFAULT_RATIOS,
   ASSET_MARKET_GROUPS, RATIO_PRESETS, RESET_DB_PASSWORD, FOREIGN_ASSET_KEYS,
@@ -38,51 +46,41 @@ import { MarketSignalSection } from './components/MarketSignalSection';
 import { BenchmarkComparisonSection } from './components/BenchmarkComparisonSection';
 
 export default function RealDbTower() {
-  const [inputBudget, setInputBudget] = useState(() =>
-    typeof window === 'undefined'
-      ? 1300000
-      : Number(localStorage.getItem(STORAGE_KEYS.budget)) || 1300000,
-  );
-  const [marketData, setMarketData] = useState<any[]>([]);
-  const [fullMarketHistory, setFullMarketHistory] = useState<any[]>([]);
-  const [livePrices, setLivePrices] = useState<any | null>(null);
-  const [marketIndices, setMarketIndices] = useState<Record<string, { price: number; change: number; changePct: number }>>({});
-  const [dbHistory, setDbHistory] = useState<DbHistory>({
-    budgets: [], records: [], batchSummaries: [], snapshots: [], dividends: [],
-  });
-  const [loading, setLoading] = useState(true);
+  const [inputBudget, setInputBudget] = useLocalStorageNumber(STORAGE_KEYS.budget, 1300000, 1);
+  const [cmaRate, setCmaRate] = useLocalStorageNumber(STORAGE_KEYS.cmaRate, 1.95, 0);
+  const [goalRoi, setGoalRoi] = useLocalStorageNumber(STORAGE_KEYS.goalRoi, 7, 0);
+  const [goalAsset, setGoalAsset] = useLocalStorageNumber(STORAGE_KEYS.goalAsset, 100000000, 0);
+  const [darkMode, setDarkMode] = useDarkMode();
+  const [customRatios, setCustomRatios] = useCustomRatios();
+  const [rebalancingHistory, setRebalancingHistory] = useRebalancingHistory();
+  const [showRebalancingQuarterBanner, setShowRebalancingQuarterBanner] = useQuarterlyRebalancingBanner();
+
+  const {
+    loading,
+    isRefreshing: isRefreshingPrice,
+    marketData,
+    fullMarketHistory,
+    livePrices,
+    marketIndices,
+    dbHistory,
+    setDbHistory,
+    emergencyFundAmount,
+    setEmergencyFundAmount,
+    reload: loadAllData,
+  } = useAppData();
+
   const [isPanicBuyMode, setIsPanicBuyMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [currentMonth, setCurrentMonth] = useState<number>(
     new Date().getMonth() + 1,
   );
   const [manualEdits, setManualEdits] = useState<Record<string, number>>({});
-  const [darkMode, setDarkMode] = useState(
-    () =>
-      typeof window !== 'undefined' &&
-      localStorage.getItem(STORAGE_KEYS.dark) === 'true',
-  );
-  const [customRatios, setCustomRatios] = useState<Record<
-    string,
-    number
-  > | null>(null);
-  const [goalRoi, setGoalRoi] = useState<number>(() => {
-    if (typeof window === 'undefined') return 7;
-    const v = localStorage.getItem(STORAGE_KEYS.goalRoi);
-    return v ? Number(v) : 7;
-  });
-  const [goalAsset, setGoalAsset] = useState<number>(() => {
-    if (typeof window === 'undefined') return 100000000;
-    const v = localStorage.getItem(STORAGE_KEYS.goalAsset);
-    return v ? Number(v) : 100000000;
-  });
   const [goalToast, setGoalToast] = useState<'roi' | 'asset' | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [historyFilterMonth, setHistoryFilterMonth] = useState<string>('');
   const [historyFilterAsset, setHistoryFilterAsset] = useState<string>('');
   const [showHistory, setShowHistory] = useState(false);
   const [showDeposits, setShowDeposits] = useState(false);
-  const [isRefreshingPrice, setIsRefreshingPrice] = useState(false);
   const [chartLegendHidden, setChartLegendHidden] = useState<{
     investment: boolean;
     principal: boolean;
@@ -105,23 +103,7 @@ export default function RealDbTower() {
   const [deleteByDatePassword, setDeleteByDatePassword] = useState('');
   const [isDeletingByDate, setIsDeletingByDate] = useState(false);
   const [showRebalancingModal, setShowRebalancingModal] = useState(false);
-  const [showRebalancingQuarterBanner, setShowRebalancingQuarterBanner] =
-    useState(false);
-  const [cmaRate, setCmaRate] = useState<number>(() => {
-    if (typeof window === 'undefined') return 1.95;
-    const v = localStorage.getItem(STORAGE_KEYS.cmaRate);
-    return v ? Number(v) : 1.95;
-  });
-  const [emergencyFundAmount, setEmergencyFundAmount] = useState<number>(300000);
   const [showSellModal, setShowSellModal] = useState(false);
-  const [rebalancingHistory, setRebalancingHistory] = useState<
-    { date: string; totalAsset: number; items: any[] }[]
-  >(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      return JSON.parse(localStorage.getItem('asset-tracker-rebalancing-history') || '[]');
-    } catch { return []; }
-  });
 
   const getRatios = useCallback((): Record<string, number> => {
     return { ...DEFAULT_RATIOS, ...(customRatios ?? {}) };
@@ -131,111 +113,6 @@ export default function RealDbTower() {
     const r = getRatios();
     return Object.values(r).reduce((a, b) => a + b, 0);
   }, [getRatios]);
-
-  const loadAllData = async () => {
-    setIsRefreshingPrice(true);
-    try {
-      const res = await fetch('/api/market');
-      const payload = await res.json();
-
-      if (Array.isArray(payload)) {
-        setFullMarketHistory(payload);
-        setMarketData(payload.filter((d) => d.d >= '2025-01'));
-        setLivePrices(payload[payload.length - 1] || null);
-      } else {
-        const { history, latest, indices } = payload;
-        if (Array.isArray(history)) {
-          setFullMarketHistory(history);
-          setMarketData(history.filter((d: any) => d.d >= '2025-01'));
-        }
-        setLivePrices(latest || null);
-        if (indices) setMarketIndices(indices);
-      }
-      const { data: bData } = await supabase
-        .from('monthly_budgets')
-        .select('*')
-        .order('month_date', { ascending: true });
-      const { data: rData } = await supabase
-        .from('investment_records')
-        .select('*')
-        .order('date', { ascending: true });
-      let snapshots: { date: string; balance: number }[] = [];
-      try {
-        const { data: sData } = await supabase
-          .from('cash_balance_snapshots')
-          .select('date, balance')
-          .order('date', { ascending: true });
-        snapshots = (sData || []).map((s) => ({
-          date: String(s.date).slice(0, 10),
-          balance: Number(s.balance ?? 0),
-        }));
-      } catch {
-        // 테이블 없을 수 있음
-      }
-      let batchSummaries: {
-        batch_id: string;
-        date: string;
-        deposit: number;
-        total_spent: number;
-        remaining_cash: number;
-      }[] = [];
-      try {
-        const { data: sumData } = await supabase
-          .from('batch_summaries')
-          .select('batch_id, date, deposit, total_spent, remaining_cash');
-        batchSummaries = (sumData || []).map((s) => ({
-          batch_id: String(s.batch_id),
-          date: String(s.date).slice(0, 10),
-          deposit: Number(s.deposit ?? 0),
-          total_spent: Number(s.total_spent ?? 0),
-          remaining_cash: Number(s.remaining_cash ?? 0),
-        }));
-      } catch {
-        // 테이블 없을 수 있음
-      }
-      let emergencyFund = 300000;
-      try {
-        const { data: settingsRow } = await supabase
-          .from('app_settings')
-          .select('emergency_fund_amount')
-          .eq('id', 1)
-          .maybeSingle();
-        if (settingsRow?.emergency_fund_amount != null)
-          emergencyFund = Number(settingsRow.emergency_fund_amount) || 300000;
-      } catch {
-        // 테이블 없을 수 있음
-      }
-      setEmergencyFundAmount(emergencyFund);
-      // 배당금 기록 로드
-      let dividends: DividendRecord[] = [];
-      try {
-        const { data: divData } = await supabase
-          .from('dividends')
-          .select('*')
-          .order('date', { ascending: true });
-        dividends = (divData || []).map((d: any) => ({
-          id: d.id,
-          date: String(d.date).slice(0, 10),
-          asset_key: String(d.asset_key),
-          amount: Number(d.amount ?? 0),
-          is_reinvested: Boolean(d.is_reinvested),
-          note: d.note ?? '',
-        }));
-      } catch {
-        // 테이블 없을 수 있음
-      }
-      setDbHistory({
-        budgets: bData || [],
-        records: rData || [],
-        batchSummaries,
-        snapshots,
-        dividends,
-      });
-    } finally {
-      setLoading(false);
-      setIsRefreshingPrice(false);
-    }
-  };
 
   const saveEmergencyFundToDb = useCallback(async (amount: number) => {
     if (!Number.isFinite(amount) || amount < 0) return;
@@ -252,7 +129,7 @@ export default function RealDbTower() {
     } catch {
       setEmergencyFundAmount(amount);
     }
-  }, []);
+  }, [setEmergencyFundAmount]);
 
   const saveBtcAmountOverride = useCallback(
     async (recordId: string, amountOverride: number | null) => {
@@ -275,7 +152,7 @@ export default function RealDbTower() {
         alert('매수액 수정 저장에 실패했습니다.');
       }
     },
-    [],
+    [setDbHistory],
   );
 
   /** 매도 기록 저장 */
@@ -296,7 +173,7 @@ export default function RealDbTower() {
     } catch {
       alert('매도 기록 저장에 실패했습니다.');
     }
-  }, []);
+  }, [loadAllData]);
 
   /** 배당금 추가 */
   const handleAddDividend = useCallback(async (dividend: Omit<DividendRecord, 'id'>) => {
@@ -306,7 +183,7 @@ export default function RealDbTower() {
     } catch {
       alert('배당금 저장에 실패했습니다.');
     }
-  }, []);
+  }, [loadAllData]);
 
   /** 배당금 삭제 */
   const handleDeleteDividend = useCallback(async (id: string) => {
@@ -316,65 +193,11 @@ export default function RealDbTower() {
     } catch {
       alert('배당금 삭제에 실패했습니다.');
     }
-  }, []);
+  }, [loadAllData]);
 
   useEffect(() => {
-    loadAllData();
     setCurrentMonth(new Date().getMonth() + 1);
   }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode);
-    localStorage.setItem(STORAGE_KEYS.dark, String(darkMode));
-  }, [darkMode]);
-
-  useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEYS.ratios);
-    if (raw)
-      try {
-        setCustomRatios(JSON.parse(raw));
-      } catch {
-        /* ignore */
-      }
-  }, []);
-
-  useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEYS.budget);
-    if (!raw) return;
-    const v = Number(raw);
-    if (Number.isFinite(v) && v > 0) setInputBudget(v);
-  }, []);
-
-  useEffect(() => {
-    if (Number.isFinite(inputBudget) && inputBudget > 0)
-      localStorage.setItem(STORAGE_KEYS.budget, String(inputBudget));
-  }, [inputBudget]);
-
-  useEffect(() => {
-    if (Number.isFinite(cmaRate) && cmaRate >= 0)
-      localStorage.setItem(STORAGE_KEYS.cmaRate, String(cmaRate));
-  }, [cmaRate]);
-
-  useEffect(() => {
-    const now = new Date();
-    const m = now.getMonth() + 1;
-    if (![3, 6, 9, 12].includes(m)) return;
-    const y = now.getFullYear();
-    const q = Math.ceil(m / 3);
-    const quarterKey = `${y}-Q${q}`;
-    const shown = localStorage.getItem(STORAGE_KEYS.rebalancingAlertQuarter);
-    if (shown !== quarterKey) setShowRebalancingQuarterBanner(true);
-  }, []);
-
-  const saveCustomRatios = useCallback(
-    (ratios: Record<string, number> | null) => {
-      setCustomRatios(ratios);
-      if (ratios)
-        localStorage.setItem(STORAGE_KEYS.ratios, JSON.stringify(ratios));
-      else localStorage.removeItem(STORAGE_KEYS.ratios);
-    },
-    [],
-  );
 
   // 1. 내 자산 현황 분석 (DB 기준)
   const myAccount = useMemo(() => {
@@ -406,7 +229,10 @@ export default function RealDbTower() {
     // 배당 수익 합산
     const totalDividends = dbHistory.dividends.reduce((acc, d) => acc + d.amount, 0);
 
-    const portfolio: any = {};
+    const portfolio: Record<string, {
+      qty: number; cost: number; avg: number; val: number;
+      roi: number; weight: number; realizedPnl: number;
+    }> = {};
     Object.keys(NAMES).forEach(
       (k) =>
         (portfolio[k] = { qty: 0, cost: 0, avg: 0, val: 0, roi: 0, weight: 0, realizedPnl: realizedPnlByAsset[k] ?? 0 }),
@@ -429,7 +255,7 @@ export default function RealDbTower() {
     let totalStockValue = 0;
     Object.keys(portfolio).forEach((k) => {
       if (k === 'cash') return;
-      const curP = currentPriceMap[k] || 0;
+      const curP = Number(currentPriceMap[k]) || 0;
       portfolio[k].avg =
         portfolio[k].qty > 0 ? portfolio[k].cost / portfolio[k].qty : 0;
       portfolio[k].val = portfolio[k].qty * curP;
@@ -488,12 +314,19 @@ export default function RealDbTower() {
           (acc, cur) => acc + getRecordAmount(cur),
           0,
         );
-        const value = qty * (mPoint[k] || 0);
+        const value = qty * (Number(mPoint[k]) || 0);
         perAsset[k] = { principal: cost, value };
         stockValUntilNow += value;
       });
 
-      const base: any = {
+      const base: {
+        date: string;
+        principal: number;
+        investment: number;
+        cash: number;
+        cmaInterest: number;
+        [key: string]: string | number;
+      } = {
         date,
         principal: depositUntilNow,
         investment: stockValUntilNow + cashUntilNow + cmaInterest,
@@ -540,13 +373,14 @@ export default function RealDbTower() {
             })
           : chartHistoryRaw;
 
-    const isCrash = Object.keys(NAMES).some(
-      (k) =>
-        k !== 'cash' &&
-        k !== 'btc' &&
-        (currentPriceMap[k] / prevPriceMap[k] - 1) * 100 <= -10,
-    );
-    const currentExchangeRate = currentPriceMap.ex ?? 1350;
+    const isCrash = Object.keys(NAMES).some((k) => {
+      if (k === 'cash' || k === 'btc') return false;
+      const cur = Number(currentPriceMap[k]) || 0;
+      const prev = Number(prevPriceMap[k]) || 0;
+      if (prev <= 0) return false;
+      return (cur / prev - 1) * 100 <= -10;
+    });
+    const currentExchangeRate = Number(currentPriceMap.ex) || 1350;
 
     return {
       currentCashBalance,
@@ -580,7 +414,7 @@ export default function RealDbTower() {
       myAccount;
     const RATIOS = getRatios();
 
-    const guide: any = {};
+    const guide: Record<string, BuyGuideItem> = {};
     let totalMonthlySpend = 0;
     let totalExpectedSpend = 0;
 
@@ -589,8 +423,9 @@ export default function RealDbTower() {
     // 전월 대비 등락률
     const dropByKey: Record<string, number> = {};
     assetKeys.forEach((k) => {
-      const prevP = prevPriceMap[k] || 1;
-      dropByKey[k] = (currentPriceMap[k] / prevP - 1) * 100;
+      const prevP = Number(prevPriceMap[k]) || 1;
+      const curP = Number(currentPriceMap[k]) || 0;
+      dropByKey[k] = (curP / prevP - 1) * 100;
     });
 
     // ── 시그널 기반 추가 예산 계산 ──
@@ -638,7 +473,6 @@ export default function RealDbTower() {
 
     // ── 비중 상한 체크 (목표 비중의 1.5배 초과 시 시그널 추매 차단) ──
     const WEIGHT_CAP_MULTIPLIER = 1.5;
-    const totalAssetVal = myAccount.totalAsset || 1;
     const weightCapped: Record<string, boolean> = {};
     assetKeys.forEach((k) => {
       const targetWeight = (RATIOS[k] / ratioSum) * 100; // 목표 비중 %
@@ -820,7 +654,7 @@ export default function RealDbTower() {
     return calculateBenchmarkComparison(
       dbHistory.records,
       myAccount.chartHistory.map((p) => ({
-        date: p.date,
+        date: String(p.date),
         principal: Number(p.principal ?? 0),
         investment: Number(p.investment ?? 0),
       })),
@@ -1173,6 +1007,7 @@ export default function RealDbTower() {
     dbHistory.records,
     dbHistory.budgets,
     dbHistory.batchSummaries,
+    loadAllData,
   ]);
 
   if (loading || !myAccount || !buyPlan) return <LoadingScreen />;
@@ -1185,8 +1020,11 @@ export default function RealDbTower() {
     isCrash,
     chartHistory,
     currentExchangeRate,
-    currentPriceMap,
+    currentPriceMap: rawCurrentPriceMap,
   } = myAccount;
+  const currentPriceMap: Record<string, number> = Object.fromEntries(
+    Object.entries(rawCurrentPriceMap).map(([k, v]) => [k, Number(v) || 0]),
+  );
   const { guide, thisMonthResidue, totalExpectedSpend } = buyPlan;
   const totalRoi =
     totalInvested > 0 ? (totalAsset / totalInvested - 1) * 100 : 0;
@@ -1210,7 +1048,6 @@ export default function RealDbTower() {
           <MarketSignalSection
             signal={marketSignal}
             names={NAMES}
-            formatNum={formatNum}
             onRefresh={loadAllData}
             isRefreshing={isRefreshingPrice}
             indices={marketIndices}
@@ -1220,7 +1057,7 @@ export default function RealDbTower() {
         <header className="flex flex-col justify-between items-start gap-4">
           <HeaderSection
             darkMode={darkMode}
-            onToggleDarkMode={() => setDarkMode((d) => !d)}
+            onToggleDarkMode={() => setDarkMode(!darkMode)}
             onExportCSV={handleExportCSV}
             onOpenSettings={() => setShowSettings(true)}
             onRefreshPrices={loadAllData}
@@ -1327,7 +1164,6 @@ export default function RealDbTower() {
             totalAsset={rebalancingData.totalAsset}
             items={rebalancingData.items}
             formatNum={formatNum}
-            darkMode={darkMode}
             history={rebalancingHistory}
             onSaveSnapshot={() => {
               const snapshot = {
@@ -1509,7 +1345,6 @@ export default function RealDbTower() {
           names={NAMES}
           defaultRatios={DEFAULT_RATIOS}
           storageKeyRatios={STORAGE_KEYS.ratios}
-          onResetToDefault={() => saveCustomRatios(null)}
           ratioPresets={RATIO_PRESETS}
           cmaRate={cmaRate}
           setCmaRate={setCmaRate}

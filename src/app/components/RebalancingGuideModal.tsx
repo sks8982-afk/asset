@@ -26,7 +26,6 @@ type RebalancingGuideModalProps = {
   totalAsset: number;
   items: RebalancingItem[];
   formatNum: (n: number) => string;
-  darkMode: boolean;
   /** 리밸런싱 히스토리 */
   history?: RebalancingSnapshot[];
   /** 스냅샷 저장 콜백 */
@@ -39,7 +38,6 @@ export function RebalancingGuideModal({
   totalAsset,
   items,
   formatNum,
-  darkMode,
   history = [],
   onSaveSnapshot,
 }: RebalancingGuideModalProps) {

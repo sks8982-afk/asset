@@ -110,6 +110,22 @@ export type ChartDataPoint = {
   [key: string]: string | number | undefined;
 };
 
+/** 월별 시장 시세 데이터 포인트 */
+export type MarketDataPoint = {
+  d: string;
+  [key: string]: string | number;
+};
+
+/** 실시간 시세 맵 */
+export type LivePrices = Record<string, number>;
+
+/** 리밸런싱 스냅샷 항목 */
+export type RebalancingSnapshot = {
+  date: string;
+  totalAsset: number;
+  items: RebalancingItem[];
+};
+
 /** 매수 가이드 아이템 */
 export type BuyGuideItem = {
   qty: number;
@@ -118,6 +134,8 @@ export type BuyGuideItem = {
   price: number;
   spent: number;
   drop: number;
+  /** 비중 상한 초과 여부 (목표 비중의 1.5배 초과 시 true) */
+  weightCapped?: boolean;
 };
 
 /** 매수 플랜 결과 */

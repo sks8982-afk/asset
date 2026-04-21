@@ -75,9 +75,9 @@ export async function GET() {
       .filter((i) => i.tech10 > 0);
 
     // 실시간 시세 (일단 새로고침 시점 기준 quote 사용)
-    const latest: any = {};
+    const latest: Record<string, number> = {};
     // 환율 실시간
-    const exQuote: any = await yf.quote(symbols.ex);
+    const exQuote = await yf.quote(symbols.ex) as { regularMarketPrice?: number } | null;
     const exLive =
       (exQuote && typeof exQuote.regularMarketPrice === 'number'
         ? exQuote.regularMarketPrice
@@ -128,7 +128,11 @@ export async function GET() {
     };
     for (const [key, symbol] of Object.entries(indexSymbols)) {
       try {
-        const q: any = await yf.quote(symbol);
+        const q = await yf.quote(symbol) as {
+          regularMarketPrice?: number;
+          regularMarketChange?: number;
+          regularMarketChangePercent?: number;
+        } | null;
         if (q && typeof q.regularMarketPrice === 'number') {
           indices[key] = {
             price: q.regularMarketPrice,
@@ -142,7 +146,8 @@ export async function GET() {
     }
 
     return NextResponse.json({ history, latest, indices });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

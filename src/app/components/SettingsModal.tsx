@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Settings, X } from 'lucide-react';
 
 type RatioPreset = { name: string; ratios: Record<string, number> };
@@ -18,7 +18,6 @@ type SettingsModalProps = {
   names: Record<string, string>;
   defaultRatios: Record<string, number>;
   storageKeyRatios: string;
-  onResetToDefault: () => void;
   ratioPresets: RatioPreset[];
   cmaRate: number;
   setCmaRate: (v: number) => void;
@@ -28,8 +27,13 @@ type SettingsModalProps = {
   saveEmergencyFundToDb: (amount: number) => Promise<void>;
 };
 
-export function SettingsModal({
-  open,
+export function SettingsModal(props: SettingsModalProps) {
+  if (!props.open) return null;
+  // key-based remount ensures draft state resets every time modal opens
+  return <SettingsModalBody key={`${props.inputBudget}-${props.cmaRate}-${props.emergencyFundAmount}`} {...props} />;
+}
+
+function SettingsModalBody({
   onClose,
   storageKeyBudget,
   inputBudget,
@@ -39,7 +43,6 @@ export function SettingsModal({
   names,
   defaultRatios,
   storageKeyRatios,
-  onResetToDefault,
   ratioPresets,
   cmaRate,
   setCmaRate,
@@ -55,15 +58,6 @@ export function SettingsModal({
   const [draftCmaRate, setDraftCmaRate] = useState(cmaRate);
   const [draftEmergencyFund, setDraftEmergencyFund] = useState(emergencyFundAmount);
 
-  useEffect(() => {
-    if (open) {
-      setDraftBudget(inputBudget);
-      setDraftRatios(customRatios ?? defaultRatios);
-      setDraftCmaRate(cmaRate);
-      setDraftEmergencyFund(emergencyFundAmount);
-    }
-  }, [open, inputBudget, customRatios, defaultRatios, cmaRate, emergencyFundAmount]);
-
   const handleSave = () => {
     setInputBudget(draftBudget);
     setCustomRatios(draftRatios);
@@ -77,8 +71,6 @@ export function SettingsModal({
     saveEmergencyFundToDb(draftEmergencyFund);
     onClose();
   };
-
-  if (!open) return null;
 
   return (
     <div

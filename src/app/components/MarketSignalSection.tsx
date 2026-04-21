@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Activity, TrendingDown, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react';
 import type { MarketSignal, SignalLevel } from '@/lib/types';
 import { getSignalLabel, getAssetRiskProfile } from '@/lib/utils';
 
@@ -10,7 +10,6 @@ type IndexData = { price: number; change: number; changePct: number };
 type MarketSignalSectionProps = {
   signal: MarketSignal;
   names: Record<string, string>;
-  formatNum: (n: number) => string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
   indices?: Record<string, IndexData>;
@@ -40,7 +39,7 @@ const SCORE_BAR_COLOR: Record<SignalLevel, string> = {
   all_in:      'bg-rose-500',
 };
 
-export function MarketSignalSection({ signal, names, formatNum, onRefresh, isRefreshing, indices }: MarketSignalSectionProps) {
+export function MarketSignalSection({ signal, names, onRefresh, isRefreshing, indices }: MarketSignalSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const style = LEVEL_STYLES[signal.overallLevel];
 

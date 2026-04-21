@@ -655,7 +655,7 @@ export async function GET() {
     cumulativeInflationValue = 0;
   const formattedData: AssetHistoryItem[] = [];
 
-  p.forEach((curr, idx) => {
+  p.forEach((curr) => {
     totalInjected += MONTHLY_INVEST;
     cumulativeInflationValue =
       cumulativeInflationValue * (1 + MONTHLY_INFLATION_RATE) + MONTHLY_INVEST;
@@ -702,7 +702,8 @@ export async function GET() {
       message: '61개월 전수 데이터 주입 완료',
       count: formattedData.length,
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -616,34 +616,36 @@ const RISK_PROFILES: Record<AssetRiskCategory, RiskProfile> = {
     scoreCap: 100,
   },
   // 나스닥, 테크TOP10, 반도체, 코스닥: 성장주/테마 → 변동 큼
+  // [공격적 프로파일 반영] AI/테크 강세 확신 투자자: 조정 단계를 더 적극적 매수 기회로 인식
   growth: {
     category: 'growth',
     label: '성장/테마',
     drawdownTiers: [
-      [35, 55, '대폭락'],
-      [25, 40, '급락'],
-      [18, 30, '조정'],
-      [12, 20, ''],
-      [7,  10, ''],
+      [30, 60, '대폭락'],      // 기존 35 → 30 (하향), 점수 55 → 60 (상향)
+      [22, 45, '급락'],        // 기존 25 → 22
+      [15, 35, '조정'],        // 기존 18 → 15, 점수 30 → 35
+      [10, 25, ''],            // 기존 12 → 10, 점수 20 → 25
+      [5,  12, ''],            // 기존 7 → 5
     ],
-    maScale: 1.3,
-    momentumMinMonths: 3,
+    maScale: 1.2,              // 기존 1.3 → 1.2 (조금 더 민감하게)
+    momentumMinMonths: 2,      // 기존 3 → 2 (AI 급락장 빠르게 포착)
     scoreCap: 100,
   },
-  // 삼성전자: 개별 종목 → 종목 고유 리스크 있음
+  // 삼성전자: 한국 반도체 대장주 — AI 사이클 + 국내 대표주 프리미엄
+  // [공격적 프로파일 반영] 미래 IT/AI 가치 고평가 → 삼전도 성장주 수준 기회
   single_stock: {
     category: 'single_stock',
     label: '개별종목',
     drawdownTiers: [
-      [40, 55, '대폭락'],
-      [30, 40, '급락'],
-      [20, 30, '조정'],
-      [12, 20, ''],
-      [7,  10, ''],
+      [35, 60, '대폭락'],      // 기존 40 → 35
+      [25, 45, '급락'],        // 기존 30 → 25
+      [18, 35, '조정'],        // 기존 20 → 18, 점수 30 → 35
+      [10, 22, ''],            // 기존 12 → 10
+      [5,  12, ''],            // 기존 7 → 5
     ],
-    maScale: 1.5,
-    momentumMinMonths: 3,
-    scoreCap: 90,
+    maScale: 1.3,              // 기존 1.5 → 1.3
+    momentumMinMonths: 2,      // 기존 3 → 2
+    scoreCap: 95,              // 기존 90 → 95 (삼전 대장주 프리미엄)
   },
   // 비트코인: 극단적 변동성 → 기준을 대폭 높여야 함
   crypto: {
@@ -769,8 +771,18 @@ export function calculateAssetSignal(
     momentumScore = 5;
   }
 
+  // ── AI/테크 컨빅션 보너스 ──
+  // 사용자 성향: 현업 개발자, AI/IT 미래 가치 높게 평가
+  // 테크·반도체·나스닥 자산의 조정 시 컨빅션 기반 +5점 (최대 scoreCap까지)
+  const techConvictionKeys = ['tech10', 'nasdaq', 'semiconductor_top10', 'samsung'];
+  let convictionBonus = 0;
+  if (techConvictionKeys.includes(key) && drawdownFromPeak >= 10) {
+    convictionBonus = 5;
+    reasons.push('AI/테크 컨빅션 보너스 +5');
+  }
+
   // ── 총점 (scoreCap으로 자산별 상한 적용) ──
-  const rawScore = drawdownScore + maScore + momentumScore;
+  const rawScore = drawdownScore + maScore + momentumScore + convictionBonus;
   const totalScore = Math.min(profile.scoreCap, rawScore);
   const { level, multiplier } = scoreToLevel(totalScore);
 

@@ -47,6 +47,10 @@ type Context = {
   hasCoreHolding: boolean; // 이미 ETF 기반
   totalAsset: number;
   monthlyBudget: number;
+  /** 젊은 투자자 (30대 이하 가정 → 공격적 허용) */
+  isYoungInvestor: boolean;
+  /** 테크/AI 강세 컨빅션 보유 */
+  hasTechConviction: boolean;
 };
 
 const STRATEGIES: Strategy[] = [
@@ -73,6 +77,7 @@ const STRATEGIES: Strategy[] = [
       const reasons: string[] = [];
       if (ctx.hasLongHorizon) { s += 1; reasons.push('10년+ 장기투자 적합'); }
       if (ctx.hasStableIncome) { s += 1; reasons.push('월급 기반 DCA 최적'); }
+      if (ctx.isYoungInvestor) { s += 0.5; reasons.push('젊음 = 시간의 복리 효과'); }
       return { score: Math.min(10, s), reason: reasons.join(' · ') };
     },
     evidence: 'SPIVA(2023): 15년 기간 액티브 펀드 88%가 S&P500 패배',
@@ -101,7 +106,8 @@ const STRATEGIES: Strategy[] = [
       const reasons: string[] = [];
       if (ctx.totalAsset >= 50_000_000) { s += 1; reasons.push('자산 5천↑ 분산 필요'); }
       if (!ctx.hasCoreHolding) { s += 1; reasons.push('포트폴리오 구축 중'); }
-      return { score: Math.min(10, s), reason: reasons.join(' · ') };
+      if (ctx.isYoungInvestor) { s -= 2; reasons.push('⚠️ 젊은 투자자엔 보수적'); }
+      return { score: Math.max(0, Math.min(10, s)), reason: reasons.join(' · ') };
     },
     evidence: 'Bridgewater Associates 실증 (1996~2024): 금융위기·코로나 MDD -15% 이내',
     howTo: '주식 30% · 장기채 40% · 중기채 15% · 금 7.5% · 원자재 7.5%',
@@ -193,6 +199,62 @@ const STRATEGIES: Strategy[] = [
     howTo: 'VTI 60% + VXUS 20% + BND 20% (한국은 TIGER 미국S&P500 + TIGER 월드ex-US + KOSEF 국고채)',
   },
   {
+    name: 'Growth-Tilt DCA (AI/테크 강세 베팅)',
+    annualReturn: '연 10~14% (호황기)',
+    volatility: '연 18~22%',
+    maxDrawdown: '-45% (닷컴·2022 긴축)',
+    complexity: 'medium',
+    ruleBasedScore: 8,
+    pros: [
+      '장기 IT/AI 성장 사이클에 최적화',
+      '나스닥·반도체 비중 높여 초과수익 추구',
+      '본업이 IT/AI면 정보 우위 활용',
+      '적립식으로 고점 매수 리스크 완화',
+    ],
+    cons: [
+      '테크 섹터 침체기(-40%) 감내 필요',
+      '분산 효과 제한적 (상관계수 0.85+)',
+      '금리 인상 사이클에 취약',
+    ],
+    suitability: (ctx) => {
+      let s = 6;
+      const reasons: string[] = [];
+      if (ctx.isYoungInvestor) { s += 2; reasons.push('젊음 = 장기 회복 여력'); }
+      if (ctx.hasTechConviction) { s += 1.5; reasons.push('본업 기반 정보 우위'); }
+      if (ctx.hasStableIncome) { s += 0.5; reasons.push('월급 버퍼'); }
+      return { score: Math.min(10, s), reason: reasons.join(' · ') };
+    },
+    evidence: 'Nasdaq100 2000~2024 연 CAGR 11.8% vs S&P500 8.9% (장기 우위 but MDD 2배)',
+    howTo: '나스닥100 35% · S&P500 20% · 반도체TOP10 15% · KODEX200 10% · 삼성전자 5% · 금 10% · 현금 5% (당신의 현재 구성과 거의 동일)',
+  },
+  {
+    name: '90/10 Aggressive (Buffett Style)',
+    annualReturn: '연 9~12%',
+    volatility: '연 17~20%',
+    maxDrawdown: '-50%',
+    complexity: 'low',
+    ruleBasedScore: 9,
+    pros: [
+      '버핏이 아내에게 남긴 포트폴리오',
+      '90% 주식 인덱스 + 10% 현금',
+      '장기적으로 거의 모든 전략 이김',
+      '단순해서 실행 실패율 낮음',
+    ],
+    cons: [
+      '채권 미보유 → 디플레이션 취약',
+      '50% 급락 구간 3-4번 경험 필요',
+    ],
+    suitability: (ctx) => {
+      let s = 7;
+      const reasons: string[] = [];
+      if (ctx.isYoungInvestor) { s += 2; reasons.push('젊음 + 공격적 성향 최적'); }
+      if (ctx.hasLongHorizon) { s += 1; reasons.push('장기 회복 시간 충분'); }
+      return { score: Math.min(10, s), reason: reasons.join(' · ') };
+    },
+    evidence: 'Buffett 2013 주주서한: "아내 신탁금 90% S&P500 + 10% 단기국채"',
+    howTo: 'S&P500 ETF 90% + 현금 10%. 끝. 30년 잊어라.',
+  },
+  {
     name: '시장 시그널 DCA (당신의 현재 방식)',
     annualReturn: '연 8~11% (추정)',
     volatility: '연 15~18%',
@@ -208,9 +270,14 @@ const STRATEGIES: Strategy[] = [
       '시그널 오탐 시 성과 저해 가능',
       '심리적으로 "항상 사고 싶다"는 욕구와 충돌',
     ],
-    suitability: () => ({ score: 9, reason: '현재 구축된 규율 시스템 활용' }),
-    evidence: '본 프로젝트 백테스팅 (제한적 데이터)',
-    howTo: '이미 하고 있는 방식 유지',
+    suitability: (ctx) => {
+      let s = 9;
+      const reasons = ['현재 구축된 규율 시스템 활용'];
+      if (ctx.hasTechConviction) { s += 0.5; reasons.push('테크 컨빅션 보너스 자동 반영'); }
+      return { score: Math.min(10, s), reason: reasons.join(' · ') };
+    },
+    evidence: '본 프로젝트 백테스팅 + 과매도 구간 가중 매수 (Jegadeesh-Titman 모멘텀 역이용)',
+    howTo: '이미 하고 있는 방식 유지 + 테크 컨빅션 보너스(+5점) 자동 적용',
   },
   {
     name: '개별 종목 적극 투자',
@@ -263,6 +330,14 @@ export function StrategyRecommendationSection({
   const [selected, setSelected] = useState<string | null>(null);
 
   const ranked = useMemo(() => {
+    // 테크·성장주 비중이 50% 이상이면 컨빅션 있다고 판단
+    const techKeys = ['tech10', 'nasdaq', 'semiconductor_top10', 'samsung'];
+    const techWeight = techKeys.reduce(
+      (s, k) => s + (portfolio[k]?.weight ?? 0),
+      0,
+    );
+    const hasTechConviction = techWeight >= 40;
+
     const context: Context = {
       hasLongHorizon: true, // 월급 기반 적립식 → 장기 투자자로 간주
       hasStableIncome: monthlyBudget > 0,
@@ -270,6 +345,8 @@ export function StrategyRecommendationSection({
       hasCoreHolding: Object.values(portfolio).filter((p) => p.qty > 0).length >= 3,
       totalAsset,
       monthlyBudget,
+      isYoungInvestor: true, // 사용자 성향 반영 (공격적 투자 허용)
+      hasTechConviction,
     };
 
     return STRATEGIES
@@ -454,23 +531,29 @@ export function StrategyRecommendationSection({
             </div>
             <div className="text-[11px] text-emerald-900 dark:text-emerald-100 space-y-2">
               <p>
-                <b>1. 당신의 현재 방식 유지</b> — 시장 시그널 DCA + ETF 중심은 이미 상위 1% 개인투자자 수준입니다.
+                <b>1. 당신 성향(젊음 + 공격적 + AI 컨빅션) 맞춤 전략</b> — Growth-Tilt DCA / 90-10 Aggressive가 최적.
+                현재 포트폴리오(나스닥·반도체·삼전 중심)는 이 방향과 정합합니다.
               </p>
               <p>
-                <b>2. 테크 ETF 중복 해소</b> — tech10·nasdaq·semiconductor_top10은 상관계수 0.85+. 하나로 통합 권장.
+                <b>2. 테크 중복은 &quot;전략&quot;으로 재정의</b> — tech10·nasdaq·semiconductor_top10 상관계수 0.85+지만,
+                AI/IT 강세 컨빅션이 있으면 &quot;중복&quot;이 아닌 &quot;의도된 집중 베팅&quot;. 현업 개발자의 정보 우위 활용 중.
               </p>
               <p>
-                <b>3. 채권 10~20% 추가</b> — All Weather 요소 일부 도입. 한국 국고채 ETF(KOSEF 10년 국고채) 검토.
+                <b>3. 채권 비중은 필수 아님</b> — 젊은 투자자 + 월급 버퍼 있으면 채권 30%+는 기회비용 큼.
+                단 현금 10%는 폭락장 가중매수 실탄으로 유지.
               </p>
               <p>
-                <b>4. 매수 후 30일 락</b> — 새로 산 종목은 30일간 매도 금지 규칙 도입.
+                <b>4. 시그널 임계값 하향 조정됨</b> — 성장주 15% 조정 시 매수기회, 22% 급락 시 강력매수.
+                테크 종목은 +5점 컨빅션 보너스 자동 적용.
               </p>
               <p>
-                <b>5. 리뷰 주기 월 1회</b> — 하루 수익률 확인은 수익률 손실의 원인 (Barber-Odean).
+                <b>5. 매도 시 규칙 위반 자동 경고</b> — IPS 규칙(-20% 전 매도금지 등)에 어긋나면
+                매도 버튼 클릭 시 규칙 곱씹기 모달이 뜹니다.
               </p>
               <p className="font-bold mt-3 pt-2 border-t border-emerald-300">
-                💡 총자산 {formatNum(totalAsset)}원 · 월 {formatNum(monthlyBudget)}원 적립 기준,
-                현 방식 유지 시 장기 연 8~10% 기대. 이미 충분합니다. 바꾸지 마세요.
+                💡 총자산 {formatNum(totalAsset)}원 · 월 {formatNum(monthlyBudget)}원 적립.
+                공격적 성향에 맞춰 장기 연 <span className="underline">10~13%</span> 기대.
+                다만 -40% 급락 구간 3-4번 경험은 필연. 그때마다 IPS와 이 화면이 방어선입니다.
               </p>
             </div>
           </div>

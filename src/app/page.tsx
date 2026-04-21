@@ -63,6 +63,8 @@ import { DCAFrequencySection } from './components/DCAFrequencySection';
 import { StrategyRecommendationSection } from './components/StrategyRecommendationSection';
 import { ThemeExposureSection } from './components/ThemeExposureSection';
 import { TradingFrequencyMonitor } from './components/TradingFrequencyMonitor';
+import { IpsViolationModal } from './components/IpsViolationModal';
+import { useIpsRules, checkIpsViolations, type IpsViolation } from './hooks/useIpsRules';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useLocalStorageNumber(STORAGE_KEYS.budget, 1300000, 1);
@@ -125,6 +127,11 @@ export default function RealDbTower() {
   const [showRebalancingModal, setShowRebalancingModal] = useState(false);
   const [showSellModal, setShowSellModal] = useState(false);
   const [signalAlertDismissed, setSignalAlertDismissed] = useState(false);
+  const ipsRules = useIpsRules();
+  const [pendingSellData, setPendingSellData] = useState<{
+    asset_key: string; quantity: number; price: number; amount: number; date: string; reason?: string;
+  } | null>(null);
+  const [ipsViolations, setIpsViolations] = useState<IpsViolation[]>([]);
 
   const getRatios = useCallback((): Record<string, number> => {
     return { ...DEFAULT_RATIOS, ...(customRatios ?? {}) };
@@ -176,8 +183,8 @@ export default function RealDbTower() {
     [setDbHistory],
   );
 
-  /** 매도 기록 저장 */
-  const handleSellRecord = useCallback(async (sellData: {
+  /** 실제 매도 기록 저장 (IPS 체크 통과 후) */
+  const persistSellRecord = useCallback(async (sellData: {
     asset_key: string; quantity: number; price: number; amount: number; date: string;
     reason?: string;
   }) => {
@@ -196,6 +203,59 @@ export default function RealDbTower() {
       toast.error('매도 기록 저장에 실패했습니다.');
     }
   }, [loadAllData]);
+
+  // 현재 전체 ROI를 ref로 보관 — useCallback 순환 참조 방지
+  const currentRoiRef = React.useRef(0);
+
+  /** 매도 시도 — IPS 규칙 체크 후 진행 */
+  const handleSellRecord = useCallback(async (sellData: {
+    asset_key: string; quantity: number; price: number; amount: number; date: string;
+    reason?: string;
+  }) => {
+    // IPS 위반 체크
+    const buyRecordsForAsset = dbHistory.records.filter(
+      (r) => r.asset_key === sellData.asset_key && r.type !== 'sell',
+    );
+    const totalCost = buyRecordsForAsset.reduce((s, r) => s + getRecordAmount(r), 0);
+    const totalQty = buyRecordsForAsset.reduce((s, r) => s + getRecordQty(r), 0);
+    const avgCost = totalQty > 0 ? totalCost / totalQty : 0;
+    const assetRoi = avgCost > 0 ? (sellData.price / avgCost - 1) * 100 : 0;
+
+    const now = new Date();
+    const currentM = now.getMonth() + 1;
+    const isQuarterMonth = [3, 6, 9, 12].includes(currentM);
+
+    const monthAgo = new Date(now);
+    monthAgo.setDate(monthAgo.getDate() - 30);
+    const recentSellCount30d = dbHistory.records.filter(
+      (r) => r.type === 'sell' && new Date(r.date) >= monthAgo,
+    ).length;
+
+    // 매도 사유 추출 (reason 문자열에서 라벨 부분)
+    const reasonKey = sellData.reason?.includes('기타') ? 'other'
+      : sellData.reason?.includes('분기') ? 'rebalancing'
+      : sellData.reason?.includes('목표') ? 'goal_reached'
+      : sellData.reason?.includes('긴급') ? 'emergency_cash'
+      : 'strategy_change';
+
+    const violations = checkIpsViolations(ipsRules, {
+      currentRoi: currentRoiRef.current,
+      assetRoi,
+      assetKey: sellData.asset_key,
+      isQuarterMonth,
+      sellReason: reasonKey,
+      recentSellCount30d,
+    });
+
+    if (violations.length > 0) {
+      setPendingSellData(sellData);
+      setIpsViolations(violations);
+      return;
+    }
+
+    // 위반 없음 → 바로 저장
+    await persistSellRecord(sellData);
+  }, [dbHistory.records, ipsRules, persistSellRecord]);
 
   /** 배당금 추가 */
   const handleAddDividend = useCallback(async (dividend: Omit<DividendRecord, 'id'>) => {
@@ -422,6 +482,13 @@ export default function RealDbTower() {
       totalDividends,
     };
   }, [marketData, dbHistory, livePrices, cmaRate]);
+
+  // 현재 ROI를 ref에 동기화 (IPS 체크용)
+  useEffect(() => {
+    if (myAccount && myAccount.totalInvested > 0) {
+      currentRoiRef.current = (myAccount.totalAsset / myAccount.totalInvested - 1) * 100;
+    }
+  }, [myAccount]);
 
   // 1.5. 매수 시그널 계산 (백테스팅 기반 5단계 시스템)
   // 전체 히스토리 사용 (MA12, 12개월 고점 등 장기 지표에 필요)
@@ -1434,6 +1501,26 @@ export default function RealDbTower() {
           formatDec={formatDec}
           onSave={handleSellRecord}
           isSaving={isSaving}
+        />
+
+        {/* IPS 규칙 위반 경고 모달 */}
+        <IpsViolationModal
+          open={ipsViolations.length > 0 && pendingSellData != null}
+          violations={ipsViolations}
+          allRules={ipsRules}
+          onProceed={async () => {
+            if (pendingSellData) {
+              await persistSellRecord(pendingSellData);
+              toast.warning('규칙 위반 매도가 기록되었습니다. 다음엔 더 신중하게.');
+            }
+            setIpsViolations([]);
+            setPendingSellData(null);
+          }}
+          onCancel={() => {
+            setIpsViolations([]);
+            setPendingSellData(null);
+            toast.success('규칙을 지켰습니다. 훌륭한 선택입니다.');
+          }}
         />
 
         <PasswordConfirmModal

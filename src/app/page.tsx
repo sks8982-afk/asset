@@ -10,6 +10,8 @@ import { useCustomRatios } from './hooks/useCustomRatios';
 import { useRebalancingHistory } from './hooks/useRebalancingHistory';
 import { useQuarterlyRebalancingBanner } from './hooks/useQuarterlyBanner';
 import { useAppData } from './hooks/useAppData';
+import { toast } from './hooks/useToast';
+import { ToastContainer } from './components/ToastContainer';
 import {
   STORAGE_KEYS, COLORS, NAMES, DEFAULT_RATIOS,
   ASSET_MARKET_GROUPS, RATIO_PRESETS, RESET_DB_PASSWORD, FOREIGN_ASSET_KEYS,
@@ -44,6 +46,10 @@ import { GoalProjectionSection } from './components/GoalProjectionSection';
 import { ExchangeRateSection } from './components/ExchangeRateSection';
 import { MarketSignalSection } from './components/MarketSignalSection';
 import { BenchmarkComparisonSection } from './components/BenchmarkComparisonSection';
+import { InvestmentPolicySection } from './components/InvestmentPolicySection';
+import { InvestmentStreakSection } from './components/InvestmentStreakSection';
+import { WhatIfSection } from './components/WhatIfSection';
+import { SignalAlertBanner } from './components/SignalAlertBanner';
 
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useLocalStorageNumber(STORAGE_KEYS.budget, 1300000, 1);
@@ -104,6 +110,7 @@ export default function RealDbTower() {
   const [isDeletingByDate, setIsDeletingByDate] = useState(false);
   const [showRebalancingModal, setShowRebalancingModal] = useState(false);
   const [showSellModal, setShowSellModal] = useState(false);
+  const [signalAlertDismissed, setSignalAlertDismissed] = useState(false);
 
   const getRatios = useCallback((): Record<string, number> => {
     return { ...DEFAULT_RATIOS, ...(customRatios ?? {}) };
@@ -149,7 +156,7 @@ export default function RealDbTower() {
           ),
         }));
       } catch {
-        alert('매수액 수정 저장에 실패했습니다.');
+        toast.error('매수액 수정 저장에 실패했습니다.');
       }
     },
     [setDbHistory],
@@ -158,6 +165,7 @@ export default function RealDbTower() {
   /** 매도 기록 저장 */
   const handleSellRecord = useCallback(async (sellData: {
     asset_key: string; quantity: number; price: number; amount: number; date: string;
+    reason?: string;
   }) => {
     try {
       await supabase.from('investment_records').insert({
@@ -168,10 +176,10 @@ export default function RealDbTower() {
         amount: sellData.amount,
         type: 'sell',
       });
-      alert('✅ 매도 기록이 저장되었습니다.');
+      toast.success('매도 기록이 저장되었습니다.');
       loadAllData();
     } catch {
-      alert('매도 기록 저장에 실패했습니다.');
+      toast.error('매도 기록 저장에 실패했습니다.');
     }
   }, [loadAllData]);
 
@@ -179,9 +187,10 @@ export default function RealDbTower() {
   const handleAddDividend = useCallback(async (dividend: Omit<DividendRecord, 'id'>) => {
     try {
       await supabase.from('dividends').insert(dividend);
+      toast.success('배당금이 기록되었습니다.');
       loadAllData();
     } catch {
-      alert('배당금 저장에 실패했습니다.');
+      toast.error('배당금 저장에 실패했습니다.');
     }
   }, [loadAllData]);
 
@@ -189,9 +198,10 @@ export default function RealDbTower() {
   const handleDeleteDividend = useCallback(async (id: string) => {
     try {
       await supabase.from('dividends').delete().eq('id', id);
+      toast.info('배당금이 삭제되었습니다.');
       loadAllData();
     } catch {
-      alert('배당금 삭제에 실패했습니다.');
+      toast.error('배당금 삭제에 실패했습니다.');
     }
   }, [loadAllData]);
 
@@ -769,7 +779,7 @@ export default function RealDbTower() {
       // 테이블이 없으면 무시 (Supabase에서 테이블 생성 후 사용)
     }
 
-    alert('✅ 저장 완료! 장부가 갱신됩니다.');
+    toast.success('저장 완료! 장부가 갱신됩니다.');
     setManualEdits({}); // 수정사항 초기화
     loadAllData();
     setIsSaving(false);
@@ -777,7 +787,7 @@ export default function RealDbTower() {
 
   const onConfirmPanicBuySave = async () => {
     if (panicBuyPasswordInput !== RESET_DB_PASSWORD) {
-      alert('비밀번호가 올바르지 않습니다.');
+      toast.error('비밀번호가 올바르지 않습니다.');
       return;
     }
     setShowPanicBuyPasswordModal(false);
@@ -805,14 +815,14 @@ export default function RealDbTower() {
     } catch {
       // 테이블이 없을 수 있음
     }
-    alert('초기화됨');
+    toast.warning('DB가 초기화되었습니다.');
     loadAllData();
     setIsSaving(false);
   };
 
   const onConfirmResetDB = async () => {
     if (resetPasswordInput !== RESET_DB_PASSWORD) {
-      alert('비밀번호가 올바르지 않습니다.');
+      toast.error('비밀번호가 올바르지 않습니다.');
       return;
     }
     setShowResetPasswordModal(false);
@@ -901,7 +911,7 @@ export default function RealDbTower() {
 
   const handleDeleteByDateConfirm = useCallback(async () => {
     if (deleteByDatePassword !== RESET_DB_PASSWORD) {
-      alert('비밀번호가 올바르지 않습니다.');
+      toast.error('비밀번호가 올바르지 않습니다.');
       return;
     }
     if (deleteByDateSelected.length === 0) return;
@@ -994,7 +1004,7 @@ export default function RealDbTower() {
         }
       }
       await loadAllData();
-      alert(`✅ 선택한 ${deleteByDateSelected.length}개 기록이 삭제되었습니다.`);
+      toast.success(`선택한 ${deleteByDateSelected.length}개 기록이 삭제되었습니다.`);
       setShowDeleteByDateModal(false);
       setDeleteByDateSelected([]);
       setDeleteByDatePassword('');
@@ -1031,6 +1041,7 @@ export default function RealDbTower() {
 
   return (
     <div className="min-h-screen bg-[var(--background)] p-4 sm:p-8 text-[var(--foreground)] font-sans transition-colors flex justify-center">
+      <ToastContainer />
       <div className="w-full max-w-6xl space-y-6">
         <GoalToastBar
           goalToast={goalToast}
@@ -1039,8 +1050,27 @@ export default function RealDbTower() {
           formatNum={formatNum}
           onClose={() => setGoalToast(null)}
         />
+
+        {/* 투자 규칙 (IPS) — 감정 방어 */}
+        <InvestmentPolicySection />
+
+        {/* 연속 적립 스트릭 */}
+        <InvestmentStreakSection budgets={dbHistory.budgets} />
+
         {isCrash && !isPanicBuyMode && (
           <PanicBuyBanner onEnterPanicMode={() => setIsPanicBuyMode(true)} />
+        )}
+
+        {/* 시그널 높음 + 이번 달 미매수 경고 */}
+        {!signalAlertDismissed && (
+          <SignalAlertBanner
+            signal={marketSignal}
+            thisMonthHasBuy={dbHistory.records.some(
+              (r) => r.date.substring(0, 7) === new Date().toISOString().slice(0, 7),
+            )}
+            isPanicBuyMode={isPanicBuyMode}
+            onDismiss={() => setSignalAlertDismissed(true)}
+          />
         )}
 
         {/* 매수 시그널 대시보드 */}
@@ -1174,7 +1204,7 @@ export default function RealDbTower() {
               const updated = [snapshot, ...rebalancingHistory].slice(0, 20);
               setRebalancingHistory(updated);
               localStorage.setItem('asset-tracker-rebalancing-history', JSON.stringify(updated));
-              alert('리밸런싱 스냅샷이 저장되었습니다.');
+              toast.success('리밸런싱 스냅샷이 저장되었습니다.');
             }}
           />
         )}
@@ -1213,6 +1243,15 @@ export default function RealDbTower() {
           results={benchmarkData.results}
           formatNum={formatNum}
           darkMode={darkMode}
+        />
+
+        {/* "만약 그때 매도했다면?" 시뮬레이터 — 감정 매도 학습 */}
+        <WhatIfSection
+          records={dbHistory.records}
+          marketHistory={fullMarketHistory}
+          livePrices={livePrices}
+          totalAsset={totalAsset}
+          formatNum={formatNum}
         />
 
         <InvestmentHistorySection

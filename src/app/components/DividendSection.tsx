@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Coins, Plus, ChevronDown, Trash2 } from 'lucide-react';
 import type { DividendRecord } from '@/lib/types';
+import { toast } from '../hooks/useToast';
 
 type DividendSectionProps = {
   dividends: DividendRecord[];
@@ -37,7 +38,7 @@ export function DividendSection({
 
   const handleAdd = async () => {
     if (!assetKey || !amount || Number(amount) <= 0) {
-      alert('자산과 배당금을 입력해 주세요.');
+      toast.warning('자산과 배당금을 입력해 주세요.');
       return;
     }
     setSaving(true);

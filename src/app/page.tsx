@@ -69,7 +69,7 @@ import { useIpsRules, checkIpsViolations, type IpsViolation } from './hooks/useI
 export default function RealDbTower() {
   const [inputBudget, setInputBudget] = useLocalStorageNumber(STORAGE_KEYS.budget, 1300000, 1);
   const [cmaRate, setCmaRate] = useLocalStorageNumber(STORAGE_KEYS.cmaRate, 1.95, 0);
-  const [goalRoi, setGoalRoi] = useLocalStorageNumber(STORAGE_KEYS.goalRoi, 7, 0);
+  const [goalRoi, setGoalRoi] = useLocalStorageNumber(STORAGE_KEYS.goalRoi, 10, 0);
   const [goalAsset, setGoalAsset] = useLocalStorageNumber(STORAGE_KEYS.goalAsset, 100000000, 0);
   const [darkMode, setDarkMode] = useDarkMode();
   const [customRatios, setCustomRatios] = useCustomRatios();
@@ -760,12 +760,23 @@ export default function RealDbTower() {
       myAccount.totalInvested > 0
         ? (myAccount.totalAsset / myAccount.totalInvested - 1) * 100
         : 0;
-    if (goalRoi > 0 && roi >= goalRoi) {
+
+    // 24시간 쿨다운: 같은 목표 도달 알림이 매 새로고침마다 뜨는 것 방지
+    const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const lastRoiShown = Number(localStorage.getItem(STORAGE_KEYS.goalRoiShown)) || 0;
+    const lastAssetShown = Number(localStorage.getItem(STORAGE_KEYS.goalAssetShown)) || 0;
+
+    if (goalRoi > 0 && roi >= goalRoi && now - lastRoiShown > COOLDOWN_MS) {
       setGoalToast('roi');
-      localStorage.setItem(STORAGE_KEYS.goalRoiShown, String(Date.now()));
-    } else if (goalAsset > 0 && myAccount.totalAsset >= goalAsset) {
+      localStorage.setItem(STORAGE_KEYS.goalRoiShown, String(now));
+    } else if (
+      goalAsset > 0
+      && myAccount.totalAsset >= goalAsset
+      && now - lastAssetShown > COOLDOWN_MS
+    ) {
       setGoalToast('asset');
-      localStorage.setItem(STORAGE_KEYS.goalAssetShown, String(Date.now()));
+      localStorage.setItem(STORAGE_KEYS.goalAssetShown, String(now));
     }
   }, [myAccount, goalRoi, goalAsset, goalToast]);
 
@@ -1128,6 +1139,8 @@ export default function RealDbTower() {
           goalToast={goalToast}
           goalRoi={goalRoi}
           goalAsset={goalAsset}
+          currentRoi={totalRoi}
+          currentAsset={totalAsset}
           formatNum={formatNum}
           onClose={() => setGoalToast(null)}
         />

@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
+export const preferredRegion = 'icn1'; // Seoul
+
 interface MarketPrice {
   d: string;
   s: number;

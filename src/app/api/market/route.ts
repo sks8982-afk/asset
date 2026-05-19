@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import YahooFinance from 'yahoo-finance2';
 
+export const preferredRegion = 'icn1'; // Seoul
+
 const yf = new YahooFinance();
 
 export async function GET() {

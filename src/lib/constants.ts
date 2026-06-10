@@ -30,7 +30,7 @@ export const NAMES: Record<string, string> = {
   tech10: 'TIGER 미국테크TOP10 INDXX',
   nasdaq: 'TIGER 미국나스닥100',
   snp: 'TIGER 미국 S&P500',
-  gold: 'TIGER 금은선물(H)',
+  gold: 'TIGER KRX금현물',
   kodex200: 'KODEX 200',
   kodex_kosdaq150: 'KODEX 코스닥150',
   semiconductor_top10: 'TIGER 반도체TOP10',

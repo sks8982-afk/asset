@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Calculator, ChevronDown, Shield } from 'lucide-react';
 import type { TaxSimulation } from '@/lib/types';
+import { CRYPTO_TAX_EFFECTIVE_YEAR } from '@/lib/constants';
 
 type TaxSimulationSectionProps = {
   taxData: TaxSimulation;
@@ -150,7 +151,9 @@ export function TaxSimulationSection({
               </div>
             </div>
             <p className="text-[11px] text-zinc-400">
-              * 비트코인(가상자산)은 ISA 계좌에 편입 불가. 250만원 공제 후 22% 과세.
+              {currentYear < CRYPTO_TAX_EFFECTIVE_YEAR
+                ? `* 가상자산 양도세는 ${CRYPTO_TAX_EFFECTIVE_YEAR}년 시행 예정 — ${currentYear}년 귀속분은 과세되지 않습니다.`
+                : '* 비트코인(가상자산)은 ISA 계좌에 편입 불가. 250만원 공제 후 22% 과세.'}
             </p>
           </div>
 

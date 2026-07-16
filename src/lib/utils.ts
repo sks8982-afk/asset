@@ -7,6 +7,7 @@ import type { IsaType } from './constants';
 import {
   FOREIGN_TAX_EXEMPTION, FOREIGN_TAX_RATE, DIVIDEND_TAX_RATE,
   ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, ISA_TAX_FREE_LIMIT, ISA_SEPARATED_TAX_RATE,
+  CRYPTO_TAX_EFFECTIVE_YEAR,
 } from './constants';
 
 /** 기록의 유효 매수액: amount_override가 있으면 사용, 없으면 amount */
@@ -146,13 +147,20 @@ export function formatDec(n: number): string {
   });
 }
 
-/** 자산별 실현 손익 계산 (매도 기록 기반, 평균 단가법) */
+/**
+ * 자산별 실현 손익 계산 (매도 기록 기반, 평균 단가법)
+ * 평균 단가는 전체 매수 기록으로 계산하고,
+ * sellYear를 주면 해당 연도의 매도만 손익에 집계한다.
+ */
 export function calculateRealizedPnl(
   records: InvestmentRecord[],
+  sellYear?: number,
 ): Record<string, number> {
   const result: Record<string, number> = {};
   const buyRecords = filterBuyRecords(records);
-  const sellRecords = filterSellRecords(records);
+  const sellRecords = filterSellRecords(records).filter(
+    (r) => sellYear == null || r.date.startsWith(String(sellYear)),
+  );
 
   // 자산별 평균 매수단가 계산
   const avgCostByAsset: Record<string, number> = {};
@@ -204,8 +212,9 @@ export function calculateTaxSimulation(
   const targetYear = year ?? new Date().getFullYear();
   const yearStr = String(targetYear);
 
-  const yearRecords = records.filter((r) => r.date.startsWith(yearStr));
-  const realizedPnl = calculateRealizedPnl(yearRecords);
+  // 평균 단가는 전체 매수 기록으로, 손익은 대상 연도 매도만 집계
+  // (당해년도 기록만 쓰면 과거에 산 종목의 취득원가가 0으로 잡혀 세금이 부풀려짐)
+  const realizedPnl = calculateRealizedPnl(records, targetYear);
 
   // ─── ISA 계좌 내 (손익통산) ───
   // ISA 대상 자산의 이익과 손실을 각각 합산
@@ -244,7 +253,11 @@ export function calculateTaxSimulation(
     (sum, key) => sum + Math.max(0, realizedPnl[key] ?? 0),
     0,
   );
-  const btcTaxBase = Math.max(0, btcGain - FOREIGN_TAX_EXEMPTION);
+  // 가상자산 양도세는 2027년 귀속분부터 시행 — 그 전에는 과세 없음
+  const cryptoTaxActive = targetYear >= CRYPTO_TAX_EFFECTIVE_YEAR;
+  const btcTaxBase = cryptoTaxActive
+    ? Math.max(0, btcGain - FOREIGN_TAX_EXEMPTION)
+    : 0;
   const btcTax = Math.round(btcTaxBase * FOREIGN_TAX_RATE);
 
   return {

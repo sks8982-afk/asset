@@ -4,7 +4,9 @@ import React, { useMemo, useState } from 'react';
 import { Receipt, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import type { InvestmentRecord } from '@/lib/types';
 import { calculateRealizedPnl } from '@/lib/utils';
-import { FOREIGN_TAX_EXEMPTION, FOREIGN_TAX_RATE, NON_ISA_KEYS } from '@/lib/constants';
+import {
+  FOREIGN_TAX_EXEMPTION, FOREIGN_TAX_RATE, NON_ISA_KEYS, CRYPTO_TAX_EFFECTIVE_YEAR,
+} from '@/lib/constants';
 
 type AssetPos = { qty: number; avg: number; val?: number };
 
@@ -32,8 +34,8 @@ export function TaxLossHarvestingSection({
 
   const analysis = useMemo(() => {
     const currentYear = new Date().getFullYear();
-    const yearRecords = records.filter((r) => r.date.startsWith(String(currentYear)));
-    const realized = calculateRealizedPnl(yearRecords);
+    // 평균 단가는 전체 매수 기록으로, 손익은 올해 매도만 집계
+    const realized = calculateRealizedPnl(records, currentYear);
 
     // ISA 밖(BTC 등) 자산의 올해 실현 양도차익
     const nonIsaGain = NON_ISA_KEYS.reduce(
@@ -60,8 +62,10 @@ export function TaxLossHarvestingSection({
     }
 
     // 현재 공제 한도 대비 상태
+    // 가상자산 양도세는 2027년 귀속분부터 시행 — 그 전에는 절세할 세금 자체가 없음
+    const cryptoTaxActive = currentYear >= CRYPTO_TAX_EFFECTIVE_YEAR;
     const afterExemption = Math.max(0, nonIsaGain - FOREIGN_TAX_EXEMPTION);
-    const currentTax = afterExemption * FOREIGN_TAX_RATE;
+    const currentTax = cryptoTaxActive ? afterExemption * FOREIGN_TAX_RATE : 0;
 
     // 손실 실현 시 절약 가능 세금
     const totalAvailableLoss = unrealizedLosses.reduce((s, x) => s + Math.abs(x.loss), 0);

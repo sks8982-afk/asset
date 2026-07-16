@@ -102,6 +102,9 @@ export const FOREIGN_TAX_EXEMPTION = 2500000;
 /** 해외주식 양도소득세율 (지방세 포함) */
 export const FOREIGN_TAX_RATE = 0.22;
 
+/** 가상자산 양도소득 과세 시행 연도 (2027-01-01 시행 예정, 그 전 귀속분은 비과세) */
+export const CRYPTO_TAX_EFFECTIVE_YEAR = 2027;
+
 /** 일반 배당소득세율 (15.4%) — ISA 밖에서 적용 */
 export const DIVIDEND_TAX_RATE = 0.154;
 

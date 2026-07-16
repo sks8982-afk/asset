@@ -7,7 +7,7 @@ import type { IsaType } from './constants';
 import {
   FOREIGN_TAX_EXEMPTION, FOREIGN_TAX_RATE, DIVIDEND_TAX_RATE,
   ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, ISA_TAX_FREE_LIMIT, ISA_SEPARATED_TAX_RATE,
-  CRYPTO_TAX_EFFECTIVE_YEAR,
+  CRYPTO_TAX_EFFECTIVE_YEAR, TAXABLE_GAIN_KEYS,
 } from './constants';
 
 /** 기록의 유효 매수액: amount_override가 있으면 사용, 없으면 amount */
@@ -245,7 +245,15 @@ export function calculateTaxSimulation(
   const isaTaxFreeRemaining = Math.max(0, taxFreeLimit - isaTotalProfit);
 
   // ISA 절세 효과: 일반과세였다면 냈을 세금 - ISA로 낸 세금
-  const taxWithoutIsa = Math.round(isaTotalProfit * DIVIDEND_TAX_RATE); // 일반이면 15.4%
+  // 일반계좌에서 실제로 과세되는 것만 비교 대상 — 해외지수·금현물 ETF 매매차익 + 배당.
+  // (국내주식형 ETF·국내주식 매매차익은 일반계좌에서도 비과세, 손익통산도 없으므로 이익만 합산)
+  const taxableGainWithoutIsa = TAXABLE_GAIN_KEYS.reduce(
+    (sum, key) => sum + Math.max(0, realizedPnl[key] ?? 0),
+    0,
+  );
+  const taxWithoutIsa = Math.round(
+    (taxableGainWithoutIsa + isaDividend) * DIVIDEND_TAX_RATE,
+  );
   const isaSavings = Math.max(0, taxWithoutIsa - isaTax);
 
   // ─── ISA 밖 (BTC 등) ───
@@ -277,6 +285,47 @@ export function calculateTaxSimulation(
   };
 }
 
+/**
+ * 자금가중 연수익률 (XIRR, 이분법).
+ * cashflows: 입금(투자)은 음수, 최종 평가액은 양수. date는 YYYY-MM-DD.
+ * 유효한 해를 찾지 못하면 null.
+ */
+export function calculateXirr(
+  cashflows: { date: string; amount: number }[],
+): number | null {
+  if (cashflows.length < 2) return null;
+  if (!cashflows.some((c) => c.amount < 0) || !cashflows.some((c) => c.amount > 0)) {
+    return null;
+  }
+
+  const sorted = [...cashflows].sort((a, b) => a.date.localeCompare(b.date));
+  const t0 = new Date(sorted[0].date).getTime();
+  const flows = sorted.map((c) => ({
+    years: (new Date(c.date).getTime() - t0) / (365.25 * 24 * 3600 * 1000),
+    amount: c.amount,
+  }));
+
+  const npv = (rate: number) =>
+    flows.reduce((s, f) => s + f.amount / Math.pow(1 + rate, f.years), 0);
+
+  let lo = -0.99;
+  let hi = 10;
+  let npvLo = npv(lo);
+  if (npvLo * npv(hi) > 0) return null;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    const v = npv(mid);
+    if (Math.abs(v) < 1e-7) return mid;
+    if (v * npvLo > 0) {
+      lo = mid;
+      npvLo = v;
+    } else {
+      hi = mid;
+    }
+  }
+  return (lo + hi) / 2;
+}
+
 /** 목표 달성 예상일 계산 (현재 자산, 월 투자액, 예상 연수익률 기반) */
 export function estimateGoalDate(
   currentAsset: number,
@@ -306,6 +355,32 @@ export function estimateGoalDate(
 }
 
 /** MDD(최대 낙폭) 계산 */
+/**
+ * 입금 흐름을 조정한 수익률 지수 시계열 (시간가중, 기준값 1).
+ * 적립식에서 신규 입금이 피크를 끌어올려 낙폭(MDD)을 가리는 왜곡을 제거:
+ * r_i = (V_i - 입금_i - V_{i-1}) / V_{i-1} 로 월별 수익률을 연결한다.
+ */
+export function buildFlowAdjustedIndex(
+  points: { principal: number; investment: number }[],
+): number[] {
+  const index: number[] = [];
+  let level = 1;
+  for (let i = 0; i < points.length; i++) {
+    if (i > 0) {
+      const prev = Number(points[i - 1].investment) || 0;
+      const cur = Number(points[i].investment) || 0;
+      const deposit =
+        (Number(points[i].principal) || 0) - (Number(points[i - 1].principal) || 0);
+      if (prev > 0) {
+        const r = (cur - deposit - prev) / prev;
+        if (Number.isFinite(r)) level *= 1 + r;
+      }
+    }
+    index.push(level);
+  }
+  return index;
+}
+
 export function calculateMDD(values: number[]): { mdd: number; peakIdx: number; troughIdx: number } {
   let maxMDD = 0;
   let peak = values[0] ?? 0;

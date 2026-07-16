@@ -26,6 +26,12 @@ export type HeaderSectionProps = {
   totalRoi: number;
   hideReturns?: boolean;
   onToggleHideReturns?: () => void;
+  /** 시세 조회 시각 (ISO) */
+  priceFetchedAt?: string | null;
+  /** 실시간 조회 실패로 폴백된 자산 이름들 */
+  priceStaleLabels?: string[];
+  /** 시세 API 호출 자체가 실패했는지 */
+  priceError?: boolean;
 };
 
 export function HeaderSection({
@@ -43,9 +49,18 @@ export function HeaderSection({
   totalRoi,
   hideReturns = false,
   onToggleHideReturns,
+  priceFetchedAt = null,
+  priceStaleLabels = [],
+  priceError = false,
 }: HeaderSectionProps) {
   const formatNum = (n: number) => Math.floor(n).toLocaleString();
   const mask = (s: string) => (hideReturns ? '***' : s);
+  const fetchedTime = priceFetchedAt
+    ? new Date(priceFetchedAt).toLocaleTimeString('ko-KR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
 
   return (
     <>
@@ -59,6 +74,21 @@ export function HeaderSection({
         <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 leading-none tracking-tighter">
           실전 <span className="text-blue-600 dark:text-blue-400">투자 장부</span>
         </h1>
+        {priceError ? (
+          <p className="mt-1 text-[10px] font-bold text-rose-500">
+            ⚠️ 시세 갱신 실패 — 이전 데이터를 표시 중입니다
+          </p>
+        ) : fetchedTime ? (
+          <p className="mt-1 text-[10px] font-bold text-slate-400">
+            시세 {fetchedTime} 기준
+            {priceStaleLabels.length > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {' '}
+                · ⚠️ 지연: {priceStaleLabels.join(', ')}
+              </span>
+            )}
+          </p>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full justify-end">
         <button

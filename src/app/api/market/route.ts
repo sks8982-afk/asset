@@ -77,13 +77,23 @@ export async function GET() {
       .filter((i) => i.tech10 > 0);
 
     // 실시간 시세 (일단 새로고침 시점 기준 quote 사용)
+    // 실시간 조회에 실패해 과거 종가/기본값으로 폴백한 자산을 기록 → UI에서 지연 표시
     const latest: Record<string, number> = {};
+    const staleKeys: string[] = [];
     // 환율 실시간
-    const exQuote = await yf.quote(symbols.ex) as { regularMarketPrice?: number } | null;
-    const exLive =
-      (exQuote && typeof exQuote.regularMarketPrice === 'number'
+    let exStale = false;
+    let exQuote: { regularMarketPrice?: number } | null = null;
+    try {
+      exQuote = await yf.quote(symbols.ex) as { regularMarketPrice?: number } | null;
+    } catch {
+      exQuote = null;
+    }
+    const exFresh =
+      exQuote && typeof exQuote.regularMarketPrice === 'number'
         ? exQuote.regularMarketPrice
-        : history[history.length - 1]?.ex) || 1350;
+        : null;
+    if (exFresh == null) exStale = true;
+    const exLive = exFresh ?? history[history.length - 1]?.ex ?? 1350;
     latest.ex = exLive;
 
     // 각 자산 실시간 시세 (종목별 실패 시 과거 종가로 보정)
@@ -97,7 +107,7 @@ export async function GET() {
       if (key === 'ex') continue;
       try {
         const q = await yf.quote(symbol);
-        const p =
+        const live =
           (q && typeof (q as { regularMarketPrice?: number }).regularMarketPrice === 'number'
             ? (q as { regularMarketPrice: number }).regularMarketPrice
             : null) ??
@@ -106,12 +116,14 @@ export async function GET() {
             : null) ??
           (q && typeof (q as { regularMarketPreviousClose?: number }).regularMarketPreviousClose === 'number'
             ? (q as { regularMarketPreviousClose: number }).regularMarketPreviousClose
-            : null) ??
-          getLastHistoryPrice(key) ??
-          0;
-        if (key === 'btc') latest.btc = p * exLive;
+            : null);
+        // 실시간 계열 값이 없으면 과거 월 종가 폴백 → 지연으로 표시
+        if (live == null) staleKeys.push(key);
+        const p = live ?? getLastHistoryPrice(key) ?? 0;
+        if (key === 'btc') latest.btc = live == null ? p : p * exLive;
         else latest[key] = p;
       } catch {
+        staleKeys.push(key);
         const fallback = getLastHistoryPrice(key);
         // btc in history is already KRW; other keys are per-asset
         if (key === 'btc') latest.btc = fallback;
@@ -147,7 +159,14 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ history, latest, indices });
+    return NextResponse.json({
+      history,
+      latest,
+      indices,
+      fetchedAt: new Date().toISOString(),
+      staleKeys,
+      exStale,
+    });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

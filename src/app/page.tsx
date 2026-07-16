@@ -21,9 +21,10 @@ import {
   getRecordAmount, getRecordQty, filterBuyRecords, filterSellRecords,
   getCumulativeInterestByMonths, getInterestFromMonthStartToToday,
   formatNum, formatDec, calculateRealizedPnl, calculateTaxSimulation,
-  estimateGoalDate, calculateMDD, calculateMarketSignal, calculateBenchmarkComparison,
+  estimateGoalDate, calculateMDD, buildFlowAdjustedIndex, calculateMarketSignal, calculateBenchmarkComparison,
 } from '@/lib/utils';
 import { HeaderSection } from './components/HeaderSection';
+import { SectionNav } from './components/SectionNav';
 import { HoldingsSummarySection } from './components/HoldingsSummarySection';
 import { GoalSection } from './components/GoalSection';
 import { MonthlyOverviewSection } from './components/MonthlyOverviewSection';
@@ -83,6 +84,7 @@ export default function RealDbTower() {
     marketData,
     fullMarketHistory,
     livePrices,
+    marketMeta,
     marketIndices,
     dbHistory,
     setDbHistory,
@@ -730,11 +732,16 @@ export default function RealDbTower() {
     return calculateTaxSimulation(dbHistory.records, dbHistory.dividends);
   }, [dbHistory.records, dbHistory.dividends]);
 
-  /** MDD 계산 */
+  /** MDD 계산 — 입금 흐름 조정 지수 기준 (신규 입금이 낙폭을 가리지 않도록) */
   const mddValue = useMemo(() => {
     if (!myAccount || !myAccount.chartHistory.length) return 0;
-    const values = myAccount.chartHistory.map((p) => p.investment as number);
-    return calculateMDD(values).mdd;
+    const index = buildFlowAdjustedIndex(
+      myAccount.chartHistory.map((p) => ({
+        principal: Number(p.principal) || 0,
+        investment: Number(p.investment) || 0,
+      })),
+    );
+    return calculateMDD(index).mdd;
   }, [myAccount]);
 
   // 벤치마크 대비 수익률 비교 (실제 매수 기록 기반)
@@ -1145,29 +1152,6 @@ export default function RealDbTower() {
           onClose={() => setGoalToast(null)}
         />
 
-        {/* 투자 규칙 (IPS) — 감정 방어 */}
-        <InvestmentPolicySection />
-
-        {/* 거래 빈도 경고 (Barber-Odean) */}
-        <TradingFrequencyMonitor records={dbHistory.records} />
-
-        {/* 20년차 애널리스트 전략 추천 */}
-        <StrategyRecommendationSection
-          totalAsset={totalAsset}
-          monthlyBudget={inputBudget}
-          portfolio={portfolio}
-          formatNum={formatNum}
-        />
-
-        {/* 연속 적립 스트릭 */}
-        <InvestmentStreakSection budgets={dbHistory.budgets} />
-
-        {/* 감정 일기 */}
-        <EmotionJournalSection
-          totalAsset={totalAsset}
-          formatNum={formatNum}
-        />
-
         {isCrash && !isPanicBuyMode && (
           <PanicBuyBanner onEnterPanicMode={() => setIsPanicBuyMode(true)} />
         )}
@@ -1184,17 +1168,10 @@ export default function RealDbTower() {
           />
         )}
 
-        {/* 매수 시그널 대시보드 */}
-        {marketSignal && (
-          <MarketSignalSection
-            signal={marketSignal}
-            names={NAMES}
-            onRefresh={loadAllData}
-            isRefreshing={isRefreshingPrice}
-            indices={marketIndices}
-          />
-        )}
+        {/* 섹션 그룹 앵커 네비게이션 */}
+        <SectionNav />
 
+        {/* 총자산 요약 — 최상단 고정 배치 */}
         <header className="flex flex-col justify-between items-start gap-4">
           <HeaderSection
             darkMode={darkMode}
@@ -1211,21 +1188,17 @@ export default function RealDbTower() {
             totalRoi={totalRoi}
             hideReturns={hideReturns}
             onToggleHideReturns={() => setHideReturns(!hideReturns)}
+            priceFetchedAt={marketMeta.fetchedAt}
+            priceStaleLabels={[
+              ...marketMeta.staleKeys.map((k) => NAMES[k] ?? k),
+              ...(marketMeta.exStale ? ['환율'] : []),
+            ]}
+            priceError={marketMeta.error}
           />
         </header>
 
-        {/* 목표 설정 */}
-        <GoalSection
-          goalRoi={goalRoi}
-          goalAsset={goalAsset}
-          storageKeys={{
-            goalRoi: STORAGE_KEYS.goalRoi,
-            goalAsset: STORAGE_KEYS.goalAsset,
-          }}
-          setGoalRoi={setGoalRoi}
-          setGoalAsset={setGoalAsset}
-        />
-
+        {/* ══ ① 이번 달 실행: 입금 → 시그널 확인 → 매수 ══ */}
+        <div id="section-monthly" className="space-y-6 scroll-mt-20">
         <MonthlyOverviewSection
           dbHistoryBudgets={dbHistory.budgets}
           inputBudget={inputBudget}
@@ -1243,6 +1216,17 @@ export default function RealDbTower() {
           formatNum={formatNum}
         />
 
+        {/* 매수 시그널 대시보드 */}
+        {marketSignal && (
+          <MarketSignalSection
+            signal={marketSignal}
+            names={NAMES}
+            onRefresh={loadAllData}
+            isRefreshing={isRefreshingPrice}
+            indices={marketIndices}
+          />
+        )}
+
         <BuyGuideSection
           currentMonth={currentMonth}
           isPanicBuyMode={isPanicBuyMode}
@@ -1258,7 +1242,10 @@ export default function RealDbTower() {
           formatNum={formatNum}
           marketSignal={marketSignal}
         />
+        </div>
 
+        {/* ══ ② 자산 점검: 보유 현황 → 리밸런싱 → 성과 분석 ══ */}
+        <div id="section-portfolio" className="space-y-6 scroll-mt-20">
         {/* 현재 보유 수량 / 평단 요약 */}
         <HoldingsSummarySection
           portfolio={portfolio}
@@ -1277,31 +1264,6 @@ export default function RealDbTower() {
           currentPriceMap={currentPriceMap}
           names={NAMES}
           totalAsset={totalAsset}
-          formatNum={formatNum}
-        />
-
-        {/* 실제 테마·지역 노출 */}
-        <ThemeExposureSection
-          portfolio={portfolio}
-          totalAsset={totalAsset}
-        />
-
-        {/* 상관계수 매트릭스 */}
-        <CorrelationMatrixSection
-          marketHistory={fullMarketHistory}
-          names={NAMES}
-          portfolio={portfolio}
-        />
-
-        {/* 명목 vs 실질 수익률 */}
-        <RealReturnSection
-          totalAsset={totalAsset}
-          totalInvested={totalInvested}
-          totalDividends={myAccount.totalDividends ?? 0}
-          cumulativeCmaInterest={myAccount.cumulativeCmaInterestToToday ?? 0}
-          oldestDepositDate={
-            dbHistory.budgets[0]?.month_date ?? new Date().toISOString().slice(0, 10)
-          }
           formatNum={formatNum}
         />
 
@@ -1398,10 +1360,54 @@ export default function RealDbTower() {
           chartHistory={chartHistory}
         />
 
+        {/* 명목 vs 실질 수익률 */}
+        <RealReturnSection
+          totalAsset={totalAsset}
+          totalInvested={totalInvested}
+          totalDividends={myAccount.totalDividends ?? 0}
+          cumulativeCmaInterest={myAccount.cumulativeCmaInterestToToday ?? 0}
+          oldestDepositDate={
+            dbHistory.budgets[0]?.month_date ?? new Date().toISOString().slice(0, 10)
+          }
+          budgets={dbHistory.budgets}
+          formatNum={formatNum}
+        />
+
+        {/* 실제 테마·지역 노출 */}
+        <ThemeExposureSection
+          portfolio={portfolio}
+          totalAsset={totalAsset}
+        />
+
+        {/* 상관계수 매트릭스 */}
+        <CorrelationMatrixSection
+          marketHistory={fullMarketHistory}
+          names={NAMES}
+          portfolio={portfolio}
+        />
+
         {/* DCA 주기 비교 (매일/매주/매달) */}
         <DCAFrequencySection
           marketHistory={fullMarketHistory}
           monthlyBudget={inputBudget}
+          formatNum={formatNum}
+        />
+        </div>
+
+        {/* ══ ③ 마인드셋: 규율·감정 방어 ══ */}
+        <div id="section-mindset" className="space-y-6 scroll-mt-20">
+        {/* 투자 규칙 (IPS) — 감정 방어 */}
+        <InvestmentPolicySection />
+
+        {/* 거래 빈도 경고 (Barber-Odean) */}
+        <TradingFrequencyMonitor records={dbHistory.records} />
+
+        {/* 연속 적립 스트릭 */}
+        <InvestmentStreakSection budgets={dbHistory.budgets} />
+
+        {/* 감정 일기 */}
+        <EmotionJournalSection
+          totalAsset={totalAsset}
           formatNum={formatNum}
         />
 
@@ -1413,28 +1419,17 @@ export default function RealDbTower() {
           formatNum={formatNum}
         />
 
-        <InvestmentHistorySection
-          open={showHistory}
-          onToggle={() => setShowHistory(!showHistory)}
-          filterMonth={historyFilterMonth}
-          filterAsset={historyFilterAsset}
-          onFilterMonthChange={setHistoryFilterMonth}
-          onFilterAssetChange={setHistoryFilterAsset}
-          records={filteredRecords}
-          allRecords={dbHistory.records}
-          names={NAMES}
-          formatNum={formatNum}
-          formatDec={formatDec}
-          onSaveAmountOverride={saveBtcAmountOverride}
-        />
-
-        <DepositsHistorySection
-          open={showDeposits}
-          onToggle={() => setShowDeposits(!showDeposits)}
-          budgets={dbHistory.budgets}
+        {/* 20년차 애널리스트 전략 추천 */}
+        <StrategyRecommendationSection
+          totalAsset={totalAsset}
+          monthlyBudget={inputBudget}
+          portfolio={portfolio}
           formatNum={formatNum}
         />
+        </div>
 
+        {/* ══ ④ 세금·배당 ══ */}
+        <div id="section-tax" className="space-y-6 scroll-mt-20">
         {/* 배당금 내역 */}
         <DividendSection
           dividends={dbHistory.dividends}
@@ -1474,6 +1469,21 @@ export default function RealDbTower() {
             }))}
           formatNum={formatNum}
         />
+        </div>
+
+        {/* ══ ⑤ 목표·기록 ══ */}
+        <div id="section-goals" className="space-y-6 scroll-mt-20">
+        {/* 목표 설정 */}
+        <GoalSection
+          goalRoi={goalRoi}
+          goalAsset={goalAsset}
+          storageKeys={{
+            goalRoi: STORAGE_KEYS.goalRoi,
+            goalAsset: STORAGE_KEYS.goalAsset,
+          }}
+          setGoalRoi={setGoalRoi}
+          setGoalAsset={setGoalAsset}
+        />
 
         {/* 목표 달성 예측 */}
         <GoalProjectionSection
@@ -1494,6 +1504,28 @@ export default function RealDbTower() {
           formatNum={formatNum}
         />
 
+        <InvestmentHistorySection
+          open={showHistory}
+          onToggle={() => setShowHistory(!showHistory)}
+          filterMonth={historyFilterMonth}
+          filterAsset={historyFilterAsset}
+          onFilterMonthChange={setHistoryFilterMonth}
+          onFilterAssetChange={setHistoryFilterAsset}
+          records={filteredRecords}
+          allRecords={dbHistory.records}
+          names={NAMES}
+          formatNum={formatNum}
+          formatDec={formatDec}
+          onSaveAmountOverride={saveBtcAmountOverride}
+        />
+
+        <DepositsHistorySection
+          open={showDeposits}
+          onToggle={() => setShowDeposits(!showDeposits)}
+          budgets={dbHistory.budgets}
+          formatNum={formatNum}
+        />
+
         {/* 데이터 무결성 점검 */}
         <DataIntegritySection
           records={dbHistory.records}
@@ -1501,6 +1533,7 @@ export default function RealDbTower() {
           budgets={dbHistory.budgets}
           formatNum={formatNum}
         />
+        </div>
 
         {/* 매도 기록 모달 */}
         <SellRecordModal

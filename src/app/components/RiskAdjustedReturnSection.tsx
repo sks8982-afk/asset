@@ -59,12 +59,15 @@ export function RiskAdjustedReturnSection({
     const sortino = annualDownStd > 0 ? (annualMean - riskFree) / annualDownStd : 0;
 
     // 최대 낙폭(MDD) 계산 — Calmar용
-    let peak = Number(chartHistory[0].investment) || 0;
+    // 입금 흐름을 조정한 수익률 지수 기준: 신규 입금이 총자산 피크를 끌어올려
+    // 실제 하락을 가리는 왜곡을 제거 (샤프/소르티노와 동일한 수익률 시계열 사용)
+    let level = 1;
+    let peak = 1;
     let mdd = 0;
-    for (const p of chartHistory) {
-      const v = Number(p.investment) || 0;
-      if (v > peak) peak = v;
-      const dd = peak > 0 ? (peak - v) / peak : 0;
+    for (const r of returns) {
+      level *= 1 + r;
+      if (level > peak) peak = level;
+      const dd = (peak - level) / peak;
       if (dd > mdd) mdd = dd;
     }
     const calmar = mdd > 0 ? annualMean / mdd : 0;

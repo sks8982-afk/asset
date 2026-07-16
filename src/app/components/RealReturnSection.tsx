@@ -2,6 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { Percent, TrendingUp, TrendingDown, Info } from 'lucide-react';
+import type { MonthlyBudget } from '@/lib/types';
+import { calculateXirr } from '@/lib/utils';
 
 type RealReturnSectionProps = {
   totalAsset: number;
@@ -9,6 +11,7 @@ type RealReturnSectionProps = {
   totalDividends: number;
   cumulativeCmaInterest: number;
   oldestDepositDate: string; // YYYY-MM-DD
+  budgets: MonthlyBudget[];
   formatNum: (n: number) => string;
 };
 
@@ -50,7 +53,8 @@ function Row({
 /**
  * 명목 vs 실질 수익률 구분 표시.
  * - 명목: 단순 (현재가치 / 투입원금 - 1) × 100
- * - 실질: 인플레이션 조정 후 구매력 기준 수익률
+ * - 실질: 인플레이션 조정 후 구매력 기준 수익률 (입금 시점별 물가 환산)
+ * - 연평균: 자금가중수익률(XIRR) — 적립식에서 각 입금의 실제 투자 기간을 반영
  * - 순수 매매 수익률: 배당/CMA이자 제외한 주식만의 성과
  */
 export function RealReturnSection({
@@ -59,6 +63,7 @@ export function RealReturnSection({
   totalDividends,
   cumulativeCmaInterest,
   oldestDepositDate,
+  budgets,
   formatNum,
 }: RealReturnSectionProps) {
   const [showInfo, setShowInfo] = useState(false);
@@ -77,30 +82,43 @@ export function RealReturnSection({
     // 명목 수익률
     const nominalReturn = (totalAsset / totalInvested - 1) * 100;
 
-    // 실질 수익률 (인플레이션 조정)
-    // 총 물가상승 배수
-    const inflationMultiplier = Math.pow(1 + ANNUAL_CPI, years);
-    const realInvested = totalInvested * inflationMultiplier; // 원금을 현재가치로 환산
-    const realReturn = (totalAsset / realInvested - 1) * 100;
+    // 실질 수익률 — 각 입금액을 입금 시점부터의 물가상승으로 현재가치 환산
+    // (전체 원금에 전체 기간 인플레를 곱하면 적립식에서 손실이 과대 계상됨)
+    const realInvested = budgets.reduce((sum, b) => {
+      const elapsed = Math.max(
+        0,
+        (now.getTime() - new Date(b.month_date).getTime()) /
+          (365.25 * 24 * 60 * 60 * 1000),
+      );
+      return sum + Number(b.amount) * Math.pow(1 + ANNUAL_CPI, elapsed);
+    }, 0);
+    const realReturn = realInvested > 0 ? (totalAsset / realInvested - 1) * 100 : 0;
 
     // 순수 매매 수익률 (배당 + CMA이자 제외)
     const pureStockValue = totalAsset - totalDividends - cumulativeCmaInterest;
     const pureStockReturn = (pureStockValue / totalInvested - 1) * 100;
 
-    // 연평균 수익률 (CAGR)
-    const cagr = (Math.pow(totalAsset / totalInvested, 1 / years) - 1) * 100;
-    const realCagr = (Math.pow(totalAsset / realInvested, 1 / years) - 1) * 100;
+    // 연평균 수익률 — 자금가중(XIRR): 입금은 음수, 현재 평가액은 양수 흐름
+    const todayStr = now.toISOString().slice(0, 10);
+    const xirr = calculateXirr([
+      ...budgets.map((b) => ({ date: b.month_date, amount: -Number(b.amount) })),
+      { date: todayStr, amount: totalAsset },
+    ]);
+    const annualMoneyWeighted = xirr != null ? xirr * 100 : null;
+    // 실질 연평균: 피셔 관계식 (1+명목)/(1+물가) - 1
+    const realAnnualMoneyWeighted =
+      xirr != null ? ((1 + xirr) / (1 + ANNUAL_CPI) - 1) * 100 : null;
 
     return {
       years,
       nominalReturn,
       realReturn,
       pureStockReturn,
-      cagr,
-      realCagr,
+      annualMoneyWeighted,
+      realAnnualMoneyWeighted,
       inflationLoss: realInvested - totalInvested,
     };
-  }, [totalAsset, totalInvested, totalDividends, cumulativeCmaInterest, oldestDepositDate]);
+  }, [totalAsset, totalInvested, totalDividends, cumulativeCmaInterest, oldestDepositDate, budgets]);
 
   if (!metrics) return null;
 
@@ -129,9 +147,9 @@ export function RealReturnSection({
       {showInfo && (
         <div className="mb-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
           <p>• <b>명목 수익률</b>: 단순 숫자 기준 수익률</p>
-          <p>• <b>실질 수익률</b>: 연 {(ANNUAL_CPI * 100).toFixed(1)}% 인플레이션 조정 후 구매력 기준</p>
+          <p>• <b>실질 수익률</b>: 연 {(ANNUAL_CPI * 100).toFixed(1)}% 인플레이션을 입금 시점별로 조정한 구매력 기준</p>
           <p>• <b>순수 매매 수익률</b>: 배당·CMA이자 제외한 주식 자체 성과</p>
-          <p>• <b>CAGR</b>: 연평균 복리 수익률 (여러 해 성과 비교용)</p>
+          <p>• <b>연평균 (XIRR)</b>: 자금가중 연수익률 — 각 입금이 실제로 투자된 기간을 반영한 적립식의 진짜 연수익률</p>
         </div>
       )}
 
@@ -152,16 +170,20 @@ export function RealReturnSection({
           value={metrics.pureStockReturn}
           note="배당·이자 제외"
         />
-        <Row
-          label="연평균 (명목)"
-          value={metrics.cagr}
-          note="CAGR"
-        />
-        <Row
-          label="연평균 (실질)"
-          value={metrics.realCagr}
-          note="CAGR 실질"
-        />
+        {metrics.annualMoneyWeighted != null && (
+          <Row
+            label="연평균 (명목)"
+            value={metrics.annualMoneyWeighted}
+            note="XIRR 자금가중"
+          />
+        )}
+        {metrics.realAnnualMoneyWeighted != null && (
+          <Row
+            label="연평균 (실질)"
+            value={metrics.realAnnualMoneyWeighted}
+            note="XIRR 인플레 조정"
+          />
+        )}
         <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
           <p className="text-[10px] font-bold text-amber-700 dark:text-amber-300 uppercase">인플레 손실</p>
           <p className="text-sm font-black text-amber-800 dark:text-amber-200">

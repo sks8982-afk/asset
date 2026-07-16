@@ -8,12 +8,24 @@ import type {
 
 type MarketIndex = { price: number; change: number; changePct: number };
 
+export type MarketMeta = {
+  /** 시세 조회 시각 (ISO). null이면 아직 성공한 조회 없음 */
+  fetchedAt: string | null;
+  /** 실시간 조회 실패로 과거 종가 폴백된 자산 키 */
+  staleKeys: string[];
+  /** 환율이 폴백 값인지 여부 */
+  exStale: boolean;
+  /** 시세 API 호출 자체가 실패했는지 여부 */
+  error: boolean;
+};
+
 type UseAppDataResult = {
   loading: boolean;
   isRefreshing: boolean;
   marketData: MarketDataPoint[];
   fullMarketHistory: MarketDataPoint[];
   livePrices: LivePrices | null;
+  marketMeta: MarketMeta;
   marketIndices: Record<string, MarketIndex>;
   dbHistory: DbHistory;
   setDbHistory: React.Dispatch<React.SetStateAction<DbHistory>>;
@@ -31,6 +43,12 @@ export function useAppData(): UseAppDataResult {
   const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
   const [fullMarketHistory, setFullMarketHistory] = useState<MarketDataPoint[]>([]);
   const [livePrices, setLivePrices] = useState<LivePrices | null>(null);
+  const [marketMeta, setMarketMeta] = useState<MarketMeta>({
+    fetchedAt: null,
+    staleKeys: [],
+    exStale: false,
+    error: false,
+  });
   const [marketIndices, setMarketIndices] = useState<Record<string, MarketIndex>>({});
   const [dbHistory, setDbHistory] = useState<DbHistory>({
     budgets: [], records: [], batchSummaries: [], snapshots: [], dividends: [],
@@ -42,21 +60,39 @@ export function useAppData(): UseAppDataResult {
   const reload = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const res = await fetch('/api/market');
-      const payload = await res.json();
+      // 시세 로드 실패 시 앱 전체가 죽지 않도록 격리 — 기존 데이터 유지 + 오류 표시
+      try {
+        const res = await fetch('/api/market');
+        const payload = await res.json();
 
-      if (Array.isArray(payload)) {
-        setFullMarketHistory(payload);
-        setMarketData(payload.filter((d) => d.d >= '2025-01'));
-        setLivePrices(payload[payload.length - 1] || null);
-      } else {
-        const { history, latest, indices } = payload;
-        if (Array.isArray(history)) {
+        if (Array.isArray(payload)) {
+          setFullMarketHistory(payload);
+          setMarketData(payload.filter((d) => d.d >= '2025-01'));
+          setLivePrices(payload[payload.length - 1] || null);
+          setMarketMeta({
+            fetchedAt: new Date().toISOString(),
+            staleKeys: [],
+            exStale: false,
+            error: false,
+          });
+        } else if (payload && Array.isArray(payload.history)) {
+          const { history, latest, indices, fetchedAt, staleKeys, exStale } = payload;
           setFullMarketHistory(history);
           setMarketData(history.filter((d: MarketDataPoint) => d.d >= '2025-01'));
+          setLivePrices(latest || null);
+          if (indices) setMarketIndices(indices);
+          setMarketMeta({
+            fetchedAt: typeof fetchedAt === 'string' ? fetchedAt : new Date().toISOString(),
+            staleKeys: Array.isArray(staleKeys) ? staleKeys : [],
+            exStale: Boolean(exStale),
+            error: false,
+          });
+        } else {
+          // {error} 응답 등 비정상 payload — 기존 데이터를 덮어쓰지 않음
+          setMarketMeta((prev) => ({ ...prev, error: true }));
         }
-        setLivePrices(latest || null);
-        if (indices) setMarketIndices(indices);
+      } catch {
+        setMarketMeta((prev) => ({ ...prev, error: true }));
       }
 
       const { data: bData } = await supabase
@@ -159,6 +195,7 @@ export function useAppData(): UseAppDataResult {
     marketData,
     fullMarketHistory,
     livePrices,
+    marketMeta,
     marketIndices,
     dbHistory,
     setDbHistory,

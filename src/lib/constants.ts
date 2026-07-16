@@ -77,6 +77,12 @@ export const ISA_ELIGIBLE_KEYS = [
 /** ISA 밖 자산 (BTC 등 — 별도 과세) */
 export const NON_ISA_KEYS = ['btc'];
 
+/**
+ * 일반계좌에서도 매매차익이 과세(배당소득세 15.4%)되는 자산 — 해외지수·금현물 ETF.
+ * 국내주식형 ETF·국내주식 매매차익은 일반계좌에서도 비과세라 ISA 절세효과 비교에서 제외.
+ */
+export const TAXABLE_GAIN_KEYS = ['tech10', 'nasdaq', 'snp', 'gold'];
+
 /** 비중 프리셋 */
 export const RATIO_PRESETS: RatioPreset[] = [
   {

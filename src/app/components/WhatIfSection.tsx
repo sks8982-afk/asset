@@ -33,6 +33,12 @@ export function WhatIfSection({
     const buyRecords = filterBuyRecords(records);
     if (buyRecords.length === 0) return [];
 
+    // 최초 매수월 이전의 급락은 시나리오 대상에서 제외 (투자 시작 전이라 의미 없음)
+    const firstBuyMonth = buyRecords.reduce((min, r) => {
+      const ym = r.date.substring(0, 7);
+      return ym < min ? ym : min;
+    }, buyRecords[0].date.substring(0, 7));
+
     // 월별 시세 맵
     const priceByMonth: Record<string, Record<string, number>> = {};
     for (const row of marketHistory) {
@@ -63,8 +69,9 @@ export function WhatIfSection({
       }
     }
 
-    // 하락률 작은 순으로 상위 3개 = 급락월
-    const worstMonths = [...drops]
+    // 최초 매수월 이후의 급락 중 하락률 작은 순으로 상위 3개 = 급락월
+    const worstMonths = drops
+      .filter((d) => d.ym >= firstBuyMonth)
       .sort((a, b) => a.dropPct - b.dropPct)
       .slice(0, 3)
       .filter((d) => d.dropPct < -3); // 최소 3% 이상 하락

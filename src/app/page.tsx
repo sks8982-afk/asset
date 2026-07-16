@@ -546,12 +546,12 @@ export default function RealDbTower() {
     let signalExtraBudget = 0;
     if (hasSignalBuy && currentCashBalance > 0) {
       // 전체 시그널 점수에 따라 현금 투입 비율 결정
-      // opportunity(36-55): 현금의 20%, strong_buy(56-75): 40%, all_in(76+): 70%
+      // IPS 규칙(패닉 매수는 56점 이상)에 맞춰 56점 미만은 현금을 투입하지 않음
+      // strong_buy(56-75): 40%, all_in(76+): 70%
       const overallScore = marketSignal.overallScore;
       let cashUsePct = 0;
       if (overallScore >= 76) cashUsePct = 0.70;
       else if (overallScore >= 56) cashUsePct = 0.40;
-      else if (overallScore >= 36) cashUsePct = 0.20;
       signalExtraBudget = currentCashBalance * cashUsePct;
     }
 
@@ -716,7 +716,7 @@ export default function RealDbTower() {
         key: k,
         name: NAMES[k],
         targetWeight: Math.round(targetWeightPct * 10) / 10,
-        currentWeight: Math.round((portfolio[k]?.weight ?? 0) * 1000) / 10,
+        currentWeight: Math.round((portfolio[k]?.weight ?? 0) * 10) / 10,
         targetAmount,
         currentAmount,
         diff,
@@ -1410,7 +1410,6 @@ export default function RealDbTower() {
           records={dbHistory.records}
           marketHistory={fullMarketHistory}
           livePrices={livePrices}
-          totalAsset={totalAsset}
           formatNum={formatNum}
         />
 

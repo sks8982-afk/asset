@@ -3,13 +3,12 @@
 import React, { useMemo, useState } from 'react';
 import { AlertOctagon, ChevronDown, ChevronUp } from 'lucide-react';
 import type { MarketDataPoint, LivePrices, InvestmentRecord } from '@/lib/types';
-import { filterBuyRecords, getRecordAmount, getRecordQty } from '@/lib/utils';
+import { filterBuyRecords, filterSellRecords, getRecordQty } from '@/lib/utils';
 
 type WhatIfSectionProps = {
   records: InvestmentRecord[];
   marketHistory: MarketDataPoint[];
   livePrices: LivePrices | null;
-  totalAsset: number;
   formatNum: (n: number) => string;
 };
 
@@ -22,7 +21,6 @@ export function WhatIfSection({
   records,
   marketHistory,
   livePrices,
-  totalAsset,
   formatNum,
 }: WhatIfSectionProps) {
   const [expanded, setExpanded] = useState(false);
@@ -78,48 +76,50 @@ export function WhatIfSection({
 
     if (worstMonths.length === 0) return [];
 
-    // 각 급락월까지 보유분을 그 달 시세로 매도 → 현금화 → 가치 추적
+    // 각 급락월 시점 보유분을 "그 달에 전량 매도" vs "지금까지 홀드"로 동일 바스켓 비교
+    // (급락 이후 매수분·현금·이자는 두 시나리오에 공통이므로 비교에서 제외)
+    const sellRecords = filterSellRecords(records);
     return worstMonths.map((wm) => {
       const sellMonthPrices = priceByMonth[wm.ym];
       if (!sellMonthPrices) return null;
 
-      // 해당 월까지 보유한 각 자산의 수량 계산
-      let cashAfterSell = 0;
+      // 해당 월까지 보유한 각 자산의 수량 계산 (매수 - 매도)
       const holdings: Record<string, number> = {};
       for (const r of buyRecords) {
         if (r.date.substring(0, 7) > wm.ym) continue;
         const k = r.asset_key;
         holdings[k] = (holdings[k] ?? 0) + getRecordQty(r);
       }
-
-      // 그 시점 가격으로 매도한 가정 → 현금 확보
-      for (const [k, qty] of Object.entries(holdings)) {
-        const p = Number(sellMonthPrices[k]) || 0;
-        cashAfterSell += qty * p;
+      for (const r of sellRecords) {
+        if (r.date.substring(0, 7) > wm.ym) continue;
+        const k = r.asset_key;
+        holdings[k] = (holdings[k] ?? 0) - getRecordQty(r);
       }
 
-      // 매도 이후에도 매수 기록이 있으면 그건 현금에서 차감되어야 하지만,
-      // 단순화를 위해 "그 달에 다 팔고 현금으로 가만히 뒀다면"으로 가정
-      const additionalBuyAfter = buyRecords
-        .filter((r) => r.date.substring(0, 7) > wm.ym)
-        .reduce((s, r) => s + getRecordAmount(r), 0);
-
-      const panicFinalCash = cashAfterSell; // 이후 매수는 안 했다고 가정
-      const lostUpside = totalAsset - panicFinalCash - additionalBuyAfter;
+      // 같은 수량을 급락월 시세로 청산했을 때 vs 현재 시세로 평가했을 때
+      let panicCash = 0;
+      let holdValueNow = 0;
+      for (const [k, qty] of Object.entries(holdings)) {
+        if (qty <= 0) continue;
+        panicCash += qty * (Number(sellMonthPrices[k]) || 0);
+        holdValueNow += qty * (Number(livePrices[k]) || 0);
+      }
+      if (panicCash <= 0) return null;
 
       return {
         ym: wm.ym,
         dropPct: wm.dropPct,
-        panicCash: panicFinalCash,
-        currentValue: totalAsset,
-        lostUpside,
+        panicCash,
+        holdValueNow,
+        lostUpside: holdValueNow - panicCash,
       };
     }).filter((x): x is NonNullable<typeof x> => x != null);
-  }, [records, marketHistory, livePrices, totalAsset]);
+  }, [records, marketHistory, livePrices]);
 
   if (scenarios.length === 0) return null;
 
-  const totalLost = scenarios.reduce((s, x) => s + Math.max(0, x.lostUpside), 0);
+  // 시나리오는 서로 배타적(한 번만 매도 가능)이므로 합산이 아니라 최대값으로 표시
+  const worstLost = scenarios.reduce((m, x) => Math.max(m, x.lostUpside), 0);
 
   return (
     <section className="bg-white dark:bg-slate-800/50 p-5 rounded-3xl border border-slate-200 dark:border-slate-600 shadow">
@@ -139,10 +139,10 @@ export function WhatIfSection({
         {expanded ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
       </div>
 
-      {!expanded && totalLost > 0 && (
+      {!expanded && worstLost > 0 && (
         <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
           과거 급락 시점에 매도했다면 지금보다{' '}
-          <span className="font-black text-rose-500">최대 {formatNum(totalLost)}원</span>{' '}
+          <span className="font-black text-rose-500">최대 {formatNum(worstLost)}원</span>{' '}
           덜 벌었을 것. 홀드가 정답이었습니다.
         </p>
       )}
@@ -169,7 +169,7 @@ export function WhatIfSection({
                 </div>
                 <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
                   <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-300">홀드 유지 (현재)</p>
-                  <p className="font-black text-emerald-700 dark:text-emerald-200">{formatNum(s.currentValue)}원</p>
+                  <p className="font-black text-emerald-700 dark:text-emerald-200">{formatNum(s.holdValueNow)}원</p>
                 </div>
               </div>
               {s.lostUpside > 0 && (
@@ -180,7 +180,8 @@ export function WhatIfSection({
             </div>
           ))}
           <p className="text-[10px] text-slate-400 pt-2">
-            ※ 급락월 이후 추가 매수는 없었다고 가정한 단순 시뮬레이션입니다.
+            ※ 급락월 당시 보유분만 &quot;그때 매도 vs 지금까지 홀드&quot;로 비교한 단순
+            시뮬레이션입니다 (이후 추가 매수분·현금은 양쪽 공통이라 제외).
           </p>
         </div>
       )}

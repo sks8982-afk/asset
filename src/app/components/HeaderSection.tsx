@@ -151,7 +151,7 @@ export function HeaderSection({
           </div>
           <div className="text-right pl-4">
             <p className="text-[10px] font-bold opacity-50 uppercase mb-1">
-              실현 수익률
+              총 수익률
             </p>
             <p
               className={`text-2xl font-black ${

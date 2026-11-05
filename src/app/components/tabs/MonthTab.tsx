@@ -18,11 +18,15 @@ type MonthTabProps = {
   updateSettings: (patch: SettingsPatch) => Promise<void>;
   hideReturns: boolean;
   reload: () => Promise<void>;
+  /** 장부를 제대로 불러온 상태인지 (아니면 기록 버튼을 막는다) */
+  canWrite: boolean;
+  /** 설정을 DB·캐시 어디서도 얻지 못함 (기본값 비상금으로 계산하지 않도록 기록을 막는다) */
+  settingsUnavailable: boolean;
 };
 
 /** 이번 달 — 요약 → (하락장 안내) → 적립 계산·기록 → 연속 적립 */
 export function MonthTab({
-  myAccount, dbHistory, fullMarketHistory, settings, updateSettings, hideReturns, reload,
+  myAccount, dbHistory, fullMarketHistory, settings, updateSettings, hideReturns, reload, canWrite, settingsUnavailable,
 }: MonthTabProps) {
   const dips = useMemo(
     () => marketDips(fullMarketHistory, myAccount.currentPriceMap, currentYearMonth()),
@@ -58,6 +62,13 @@ export function MonthTab({
           settings={settings}
           updateSettings={updateSettings}
           reload={reload}
+          saveBlockedReason={
+            !canWrite
+              ? '장부를 불러오지 못해 기록할 수 없습니다 — 위에서 다시 불러와 주세요'
+              : settingsUnavailable
+                ? '설정을 불러오지 못해 기록할 수 없습니다 — 새로고침해 주세요'
+                : null
+          }
         />
       </div>
       <div className={`min-w-0 lg:col-start-1 lg:self-start ${hasDip ? 'lg:row-start-3' : 'lg:row-start-2'}`}>

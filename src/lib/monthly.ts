@@ -16,11 +16,11 @@ function finiteOrZero(v: number): number {
 export type WaitingCash = {
   /** 장부 현금 (입금 − 매수 + 매도 + 배당) */
   ledgerCash: number;
-  /** 오늘까지 쌓인 CMA 이자 (장부 밖, 계산값) */
+  /** 오늘까지 쌓였을 CMA 이자 추정 (장부 밖 계산값 — 매수 금액에는 넣지 않고 안내만 한다) */
   accruedInterest: number;
   /** 비상금 (투자하지 않는 금액) */
   emergencyFund: number;
-  /** 투자 대기 현금 = max(0, 장부 현금 + 이자 − 비상금) */
+  /** 투자 대기 현금 = max(0, 장부 현금 − 비상금) */
   waiting: number;
   /** 장부 현금이 있는데 비상금이 전부 가려 잔돈이 투자되지 않는 상태 */
   blockedByEmergencyFund: boolean;
@@ -34,14 +34,13 @@ export function waitingCashOf({ ledgerCash, accruedInterest, emergencyFund }: {
   const cash = finiteOrZero(ledgerCash);
   const interest = Math.max(0, finiteOrZero(accruedInterest));
   const reserve = Math.max(0, finiteOrZero(emergencyFund));
-  const available = cash + interest;
-  const waiting = Math.max(0, available - reserve);
+  const waiting = Math.max(0, cash - reserve);
   return {
     ledgerCash: cash,
     accruedInterest: interest,
     emergencyFund: reserve,
     waiting,
-    blockedByEmergencyFund: available > 0 && waiting === 0,
+    blockedByEmergencyFund: cash > 0 && waiting === 0,
   };
 }
 
@@ -58,12 +57,21 @@ export function addMonthsISO(isoDate: string, months: number): string {
   return `${Math.floor(total / 12)}-${month}${isoDate.slice(7, 10)}`;
 }
 
+/**
+ * 금액이 있는 입금만 (0원·날짜 없는 행은 뺀다).
+ * 첫 입금일·연환산 수익률·벤치마크 비교가 모두 이 규칙을 쓴다.
+ */
+export function positiveDeposits(
+  budgets: readonly Pick<MonthlyBudget, 'month_date' | 'amount'>[],
+): { date: string; amount: number }[] {
+  return budgets
+    .filter((b) => typeof b.month_date === 'string' && Number(b.amount) > 0)
+    .map((b) => ({ date: b.month_date.slice(0, 10), amount: Number(b.amount) }));
+}
+
 /** 금액이 있는 첫 입금일 'YYYY-MM-DD' (없으면 null) */
 export function firstDepositDate(budgets: readonly Pick<MonthlyBudget, 'month_date' | 'amount'>[]): string | null {
-  const dates = budgets
-    .filter((b) => Number(b.amount) > 0 && typeof b.month_date === 'string')
-    .map((b) => b.month_date.slice(0, 10))
-    .sort();
+  const dates = positiveDeposits(budgets).map((d) => d.date).sort();
   return dates[0] ?? null;
 }
 
@@ -84,9 +92,7 @@ export function annualizedReturn({ budgets, totalAsset, today }: {
   if (!first || today < addMonthsISO(first, MIN_MONTHS_FOR_ANNUALIZED)) {
     return { eligible: false, rate: null };
   }
-  const flows = budgets
-    .filter((b) => Number(b.amount) > 0)
-    .map((b) => ({ date: b.month_date.slice(0, 10), amount: -Number(b.amount) }));
+  const flows = positiveDeposits(budgets).map((d) => ({ date: d.date, amount: -d.amount }));
   return { eligible: true, rate: calculateXirr([...flows, { date: today, amount: totalAsset }]) };
 }
 

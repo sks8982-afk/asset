@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildMonthlySeries, mergeMonthlyHistory, resolveExchangeTimeZone,
+  buildMonthlySeries, indexStripItems, mergeMonthlyHistory, parseIndices, resolveExchangeTimeZone,
   EX_KEY, FALLBACK_KRW_PER_USD, type MonthlyQuote,
 } from './market';
 
@@ -115,5 +115,39 @@ describe('mergeMonthlyHistory', () => {
 
   it('returns no rows when the master series is missing', () => {
     expect(mergeMonthlyHistory(series, 'tech10', ['btc'])).toEqual([]);
+  });
+});
+
+describe('market indices (header line)', () => {
+  const raw = {
+    kospi: { price: 5384.27, change: -301.2, changePct: -5.2981 },
+    kosdaq: { price: 912.5, change: 3, changePct: 0.33 },
+    sp500: { price: 7689.4, change: 121, changePct: 1.6012 },
+    nasdaq_idx: { price: 25737.1, change: 356, changePct: 1.4 },
+    dow: { price: 'n/a', change: 0, changePct: 0 },
+  };
+
+  it('keeps indices with a valid price and cleans the change fields', () => {
+    const parsed = parseIndices({ ...raw, kosdaq: { price: 912.5, changePct: Number.NaN } });
+    expect(Object.keys(parsed ?? {})).toEqual(['kospi', 'kosdaq', 'sp500', 'nasdaq_idx']);
+    expect(parsed?.kosdaq).toEqual({ price: 912.5, change: 0, changePct: 0 });
+    expect(parseIndices(undefined)).toBeNull();
+    expect(parseIndices([])).toBeNull();
+    expect(parseIndices({ dow: raw.dow, sp500: { price: 0 } })).toBeNull();
+  });
+
+  it('formats KOSPI, S&P500 and Nasdaq in that order', () => {
+    expect(indexStripItems(parseIndices(raw))).toEqual([
+      { key: 'kospi', label: 'KOSPI', price: '5,384', changePct: '5.3%', direction: 'down' },
+      { key: 'sp500', label: 'S&P500', price: '7,689', changePct: '1.6%', direction: 'up' },
+      { key: 'nasdaq_idx', label: '나스닥', price: '25,737', changePct: '1.4%', direction: 'up' },
+    ]);
+  });
+
+  it('keeps decimals below 1,000, treats a rounded 0.0% as flat and skips missing indices', () => {
+    expect(indexStripItems({ kospi: { price: 987.654, change: 0, changePct: -0.04 } })).toEqual([
+      { key: 'kospi', label: 'KOSPI', price: '987.65', changePct: '0.0%', direction: 'flat' },
+    ]);
+    expect(indexStripItems(null)).toEqual([]);
   });
 });

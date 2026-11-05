@@ -205,7 +205,7 @@ function LoginScreen({ onDevBypass }: LoginScreenProps) {
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-[var(--background)] px-4 py-10 text-[var(--foreground)]">
-      <div className="w-full max-w-sm rounded-3xl border border-[color:var(--border)] bg-[var(--card)] p-6 shadow-sm sm:p-8">
+      <div className="w-full max-w-sm rounded-2xl border border-[color:var(--border)] bg-[var(--card)] p-6 shadow-sm sm:p-8">
         <div className="mb-6 flex flex-col items-center text-center">
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-[color:var(--border)] bg-[var(--background)]">
             <LockKeyhole size={22} className="opacity-70" aria-hidden="true" />

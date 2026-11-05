@@ -5,8 +5,9 @@ import type { MyAccountData } from '@/lib/types';
 import type { AppSettings } from '@/lib/settings';
 import { CORE_GROUP_KEYS, getBuyVehicle, type CoreGroup } from '@/lib/assets';
 import { coreDrift, planCoreBuys } from '@/lib/core';
+import { coreAllocation } from '@/lib/holdings';
 import {
-  applyPlanEdits, cleanPrice, cleanQty, groupToBoost, planTotals, waitingCashOf, type PlanEdit,
+  applyPlanEdits, cleanPrice, cleanQty, planTotals, waitingCashOf, type PlanEdit,
 } from '@/lib/monthly';
 
 type MonthlyPlanInput = {
@@ -62,6 +63,12 @@ export function useMonthlyPlan({ myAccount, settings, hasMonthRow }: MonthlyPlan
     return coreDrift(values, settings.coreWeights);
   }, [myAccount.portfolio, settings.coreWeights]);
   const hasCoreHoldings = CORE_GROUP_KEYS.some((g) => drift[g].value > 0);
+  // 점검 탭과 같은 규칙 — 보유한 코어 종목 중 시세가 없는 것이 있으면 비중 이탈 안내를 하지 않는다
+  const allocation = useMemo(
+    () => coreAllocation(myAccount.portfolio, myAccount.currentPriceMap, settings.coreWeights),
+    [myAccount.portfolio, myAccount.currentPriceMap, settings.coreWeights],
+  );
+  const missingPrice = allocation.groups.some((g) => g.missingPrice);
 
   const editLine = useCallback((key: string, patch: PlanEdit) => {
     setEdits((prev) => {
@@ -81,6 +88,8 @@ export function useMonthlyPlan({ myAccount, settings, hasMonthRow }: MonthlyPlan
 
   return {
     deposit,
+    /** 이번 달 입금액을 직접 고쳤는지 (아니면 기본값 — 설정의 월 적립 금액 또는 0) */
+    depositEdited: depositOverride !== null,
     setDeposit: setDepositOverride,
     cash,
     budget,
@@ -88,7 +97,9 @@ export function useMonthlyPlan({ myAccount, settings, hasMonthRow }: MonthlyPlan
     totals,
     drift,
     hasCoreHoldings,
-    groupToBoost: hasCoreHoldings ? groupToBoost(drift) : null,
+    /** 보유한 코어 종목 중 시세를 받지 못한 것이 있음 — 비중이 실제와 다를 수 있다 */
+    missingPrice,
+    groupToBoost: hasCoreHoldings ? allocation.boost : null,
     setQty,
     setPrice,
     reset,

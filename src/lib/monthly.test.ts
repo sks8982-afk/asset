@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addMonthsISO, annualizedReturn, applyPlanEdits, buildBuyRecords, buildSaveSummary, cleanPrice, cleanQty,
-  corePercents, firstDepositDate, groupToBoost, isMarketDip, marketDips, planTotals, waitingCashOf,
+  corePercents, firstDepositDate, groupToBoost, isMarketDip, marketDips, planTotals, positiveDeposits, waitingCashOf,
 } from './monthly';
 import { coreDrift, planCoreBuys } from './core';
 import type { MarketDataPoint } from './types';
@@ -12,9 +12,9 @@ const VEHICLES = (snp: number, kodex: number) => ({
 });
 
 describe('waitingCashOf', () => {
-  it('invests ledger cash plus CMA interest above the emergency fund', () => {
-    expect(waitingCashOf({ ledgerCash: 400_000, accruedInterest: 1_200, emergencyFund: 300_000 })).toMatchObject({
-      waiting: 101_200, blockedByEmergencyFund: false,
+  it('invests only ledger cash above the emergency fund — the CMA interest estimate is shown, not spent', () => {
+    expect(waitingCashOf({ ledgerCash: 400_000, accruedInterest: 1_200, emergencyFund: 300_000 })).toEqual({
+      ledgerCash: 400_000, accruedInterest: 1_200, emergencyFund: 300_000, waiting: 100_000, blockedByEmergencyFund: false,
     });
   });
 
@@ -23,14 +23,35 @@ describe('waitingCashOf', () => {
       waiting: 0, blockedByEmergencyFund: true,
     });
     expect(waitingCashOf({ ledgerCash: 0, accruedInterest: 0, emergencyFund: 300_000 }).blockedByEmergencyFund).toBe(false);
+    // 이자 추정만 있고 장부 현금이 없으면 비상금에 가려진 것이 아니다
+    expect(waitingCashOf({ ledgerCash: 0, accruedInterest: 5_000, emergencyFund: 300_000 })).toMatchObject({
+      waiting: 0, blockedByEmergencyFund: false,
+    });
   });
 
   it('never goes below zero and cleans bad inputs', () => {
     expect(waitingCashOf({ ledgerCash: -50_000, accruedInterest: -1, emergencyFund: -5 })).toMatchObject({
       waiting: 0, accruedInterest: 0, emergencyFund: 0, blockedByEmergencyFund: false,
     });
-    expect(waitingCashOf({ ledgerCash: Number.NaN, accruedInterest: 10, emergencyFund: 0 }).waiting).toBe(10);
-    expect(waitingCashOf({ ledgerCash: 18_445, accruedInterest: 0, emergencyFund: 0 }).waiting).toBe(18_445);
+    expect(waitingCashOf({ ledgerCash: Number.NaN, accruedInterest: 10, emergencyFund: 0 })).toMatchObject({
+      waiting: 0, accruedInterest: 10,
+    });
+    expect(waitingCashOf({ ledgerCash: 18_445, accruedInterest: 900, emergencyFund: 0 }).waiting).toBe(18_445);
+  });
+});
+
+describe('positiveDeposits', () => {
+  it('keeps only deposits with an amount and a date, as YYYY-MM-DD', () => {
+    expect(positiveDeposits([
+      { month_date: '2025-11-05T00:00:00', amount: 500_000 },
+      { month_date: '2025-12-05', amount: 0 },
+      { month_date: '2026-01-05', amount: Number('x') },
+      { month_date: undefined as unknown as string, amount: 1 },
+      { month_date: '2026-02-05', amount: '300000' as unknown as number },
+    ])).toEqual([
+      { date: '2025-11-05', amount: 500_000 },
+      { date: '2026-02-05', amount: 300_000 },
+    ]);
   });
 });
 
@@ -57,6 +78,13 @@ describe('annualizedReturn (12-month gate)', () => {
   it('handles no deposits or a worthless account', () => {
     expect(annualizedReturn({ budgets: [], totalAsset: 1, today: '2026-11-05' })).toEqual({ eligible: false, rate: null });
     expect(annualizedReturn({ budgets, totalAsset: 0, today: '2027-01-01' })).toEqual({ eligible: true, rate: null });
+  });
+
+  it('starts the 12 months at the first deposit with money (a 0원 row does not count)', () => {
+    const withEmptyFirstRow = [{ month_date: '2025-06-01', amount: 0 }, ...budgets];
+    expect(annualizedReturn({ budgets: withEmptyFirstRow, totalAsset: 2_200_000, today: '2026-07-01' }).eligible).toBe(false);
+    expect(annualizedReturn({ budgets: withEmptyFirstRow, totalAsset: 2_200_000, today: '2026-11-05' }))
+      .toEqual(annualizedReturn({ budgets, totalAsset: 2_200_000, today: '2026-11-05' }));
   });
 
   it('finds the first non-empty deposit and adds months', () => {

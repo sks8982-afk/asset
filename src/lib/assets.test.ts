@@ -4,7 +4,7 @@ import {
   getAsset, getBuyVehicle, getGroupKeys, isCoreAsset, keysByTaxClass, type CoreGroup,
 } from './assets';
 import {
-  NAMES, DOMESTIC_ASSET_KEYS, ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, TAXABLE_GAIN_KEYS,
+  NAMES, ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, TAXABLE_GAIN_KEYS,
 } from './constants';
 
 describe('asset registry', () => {
@@ -84,7 +84,6 @@ describe('legacy constants derived from the registry', () => {
   });
 
   it('derives tax key lists', () => {
-    expect(DOMESTIC_ASSET_KEYS).toEqual(['gold', 'kodex200', 'kodex_kosdaq150', 'semiconductor_top10', 'samsung']);
     expect(ISA_ELIGIBLE_KEYS).toEqual(ASSET_KEYS.filter((k) => k !== 'btc'));
     expect(NON_ISA_KEYS).toEqual(['btc']);
     expect(TAXABLE_GAIN_KEYS).toEqual(['snp', 'nasdaq', 'nasdaq_kodex', 'tech10', 'gold']);

@@ -235,6 +235,27 @@ export function calculatePositions(records: InvestmentRecord[]): Record<string, 
   return runMovingAverage(records).positions;
 }
 
+/** 그날(YYYY-MM-DD)에 팔 수 있는 수량과 그날 기준 평균단가 */
+export type SellablePosition = { qty: number; avgCost: number };
+
+const dateOf = (r: InvestmentRecord): string => (r.date || '').slice(0, 10);
+
+/**
+ * date에 매도를 기록할 때 팔 수 있는 수량 (이동평균법).
+ * 그날까지의 보유 수량과, 그 뒤 날짜마다 기록을 반영한 보유 수량 중 가장 작은 값 —
+ * 과거 날짜로 팔면 그 뒤 매도들의 보유가 음수가 되지 않아야 하므로.
+ * 평균단가는 그날까지의 기록 기준 (예상 손익·수익률 계산용).
+ */
+export function sellablePositionOn(records: InvestmentRecord[], assetKey: string, date: string): SellablePosition {
+  const own = records.filter((r) => r.asset_key === assetKey);
+  const positionUntil = (day: string): Position =>
+    calculatePositions(own.filter((r) => dateOf(r) <= day))[assetKey] ?? EMPTY_POSITION;
+  const asOf = positionUntil(date);
+  const laterDays = Array.from(new Set(own.map(dateOf).filter((d) => d > date))).sort();
+  const qty = laterDays.reduce((min, day) => Math.min(min, positionUntil(day).qty), asOf.qty);
+  return { qty: Math.max(0, qty), avgCost: asOf.avgCost };
+}
+
 /**
  * 자산별 실현 손익 (이동평균법).
  * 평균단가는 전체 기록을 날짜순으로 따라가며 구하고,

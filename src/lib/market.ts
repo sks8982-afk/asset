@@ -54,6 +54,63 @@ export function buildMonthlySeries(
   return Array.from(byMonth, ([d, p]) => ({ d, p })).sort((a, b) => a.d.localeCompare(b.d));
 }
 
+// ─── 주요 지수 (헤더 한 줄) ───
+
+/** 지수 한 개 — /api/market의 indices 값 */
+export type IndexQuote = { price: number; change: number; changePct: number };
+
+/** 지수 키(kospi·sp500·nasdaq_idx 등) → 시세 */
+export type MarketIndices = Record<string, IndexQuote>;
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** /api/market의 indices — 가격이 있는 지수만 남긴다 (하나도 없거나 형식이 다르면 null) */
+export function parseIndices(raw: unknown): MarketIndices | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const out: MarketIndices = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const quote = value as Record<string, unknown>;
+    const price = finiteNumber(quote.price);
+    if (price == null || price <= 0) continue;
+    out[key] = { price, change: finiteNumber(quote.change) ?? 0, changePct: finiteNumber(quote.changePct) ?? 0 };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** 헤더에 보이는 지수 (이 순서) */
+const INDEX_STRIP: readonly { key: string; label: string }[] = [
+  { key: 'kospi', label: 'KOSPI' },
+  { key: 'sp500', label: 'S&P500' },
+  { key: 'nasdaq_idx', label: '나스닥' },
+];
+
+export type IndexStripItem = {
+  key: string;
+  label: string;
+  /** 1,000 이상은 소수 없이 */
+  price: string;
+  /** 등락률 절댓값, 소수 한 자리 ('5.3%') */
+  changePct: string;
+  /** 반올림해 0.0%면 flat */
+  direction: 'up' | 'down' | 'flat';
+};
+
+/** 헤더 지수 줄 항목 — 시세가 없는 지수는 뺀다 */
+export function indexStripItems(indices: MarketIndices | null): IndexStripItem[] {
+  if (!indices) return [];
+  return INDEX_STRIP.flatMap(({ key, label }) => {
+    const quote = indices[key];
+    if (!quote) return [];
+    const pct = Math.abs(quote.changePct).toFixed(1);
+    const direction = Number(pct) === 0 ? 'flat' : quote.changePct > 0 ? 'up' : 'down';
+    const price = quote.price.toLocaleString('en-US', { maximumFractionDigits: quote.price >= 1000 ? 0 : 2 });
+    return [{ key, label, price, changePct: `${pct}%`, direction }];
+  });
+}
+
 /**
  * 종목별 월별 시계열을 월 단위 행으로 합친다.
  * - 기준(masterKey) 종목에 가격이 있는 달만 행을 만든다

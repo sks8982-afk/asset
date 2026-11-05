@@ -5,6 +5,7 @@ import { Target } from 'lucide-react';
 import { goalProgressPct, goalScenarios } from '@/lib/goal';
 import { formatMonthsKo, formatYearMonthKo, todayISO } from '@/lib/date';
 import { formatNum } from '@/lib/utils';
+import { maskReturn } from '../../hooks/useHideReturns';
 import { Card } from '../ui/Card';
 import { IntegerInput } from '../ui/IntegerInput';
 import { ProgressBar } from '../ui/ProgressBar';
@@ -15,10 +16,12 @@ type GoalCardProps = {
   goalAsset: number;
   monthlyBudget: number;
   onSaveGoal: (goalAsset: number) => void;
+  /** 수익률 숨기기 — 현재 자산과 달성률을 가린다 (요약 카드와 같은 규칙) */
+  hideReturns: boolean;
 };
 
 /** 목표 — 목표 자산 입력, 진행률, 연 4·7·10% 가정별 도달 시점 */
-export function GoalCard({ totalAsset, goalAsset, monthlyBudget, onSaveGoal }: GoalCardProps) {
+export function GoalCard({ totalAsset, goalAsset, monthlyBudget, onSaveGoal, hideReturns }: GoalCardProps) {
   const inputId = useId();
   /** 입력 중인 값 (null = 저장된 값을 그대로 보여 줌) */
   const [draft, setDraft] = useState<number | null>(null);
@@ -57,9 +60,9 @@ export function GoalCard({ totalAsset, goalAsset, monthlyBudget, onSaveGoal }: G
         <div className="mt-4">
           <div className="flex items-baseline justify-between gap-3 text-sm tabular-nums">
             <span className="text-slate-600 dark:text-slate-300">
-              현재 <span className="font-bold text-slate-900 dark:text-slate-100">{formatNum(totalAsset)}원</span>
+              현재 <span className="font-bold text-slate-900 dark:text-slate-100">{maskReturn(formatNum(totalAsset), hideReturns)}원</span>
             </span>
-            <span className="font-bold text-slate-900 dark:text-slate-100">{progress.toFixed(1)}%</span>
+            <span className="font-bold text-slate-900 dark:text-slate-100">{maskReturn(progress.toFixed(1), hideReturns)}%</span>
           </div>
           <ProgressBar value={progress} tone={reached ? 'emerald' : 'blue'} className="mt-2" />
         </div>

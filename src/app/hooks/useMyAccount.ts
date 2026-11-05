@@ -6,7 +6,7 @@ import type {
 } from '@/lib/types';
 import { NAMES } from '@/lib/constants';
 import {
-  calculatePositions, calculateRealizedPnl, filterBuyRecords, filterSellRecords,
+  calculatePositions, filterBuyRecords, filterSellRecords,
   getCumulativeInterestByMonths, getInterestFromMonthStartToToday, getRecordAmount,
   type Position,
 } from '@/lib/utils';
@@ -48,38 +48,18 @@ function cashOf(
   );
 }
 
-/** 자산별 보유 현황 — 수량·원가·평단은 이동평균법, 수익률 = 평가액 / 남은 원가 − 1 */
+/** 자산별 보유 현황 — 수량·원가·평단은 이동평균법, 평가액 = 수량 × 현재가 */
 function buildPortfolio(
   positions: Record<string, Position>,
   prices: Record<string, number>,
-  realizedPnl: Record<string, number>,
-  cashBalance: number,
 ): { portfolio: Record<string, AssetPortfolio>; totalStockValue: number } {
   const entries = ASSET_KEYS.map((k): [string, AssetPortfolio] => {
     const p = positions[k] ?? NO_POSITION;
-    const val = p.qty * (prices[k] ?? 0);
-    return [k, {
-      qty: p.qty,
-      cost: p.cost,
-      avg: p.avgCost,
-      val,
-      roi: p.cost > 0 ? (val / p.cost - 1) * 100 : 0,
-      weight: 0,
-      realizedPnl: realizedPnl[k] ?? 0,
-    }];
+    return [k, { qty: p.qty, cost: p.cost, avg: p.avgCost, val: p.qty * (prices[k] ?? 0) }];
   });
-  const totalStockValue = sumBy(entries, ([, p]) => p.val);
-  const total = totalStockValue + cashBalance;
-  const weightOf = (value: number): number => (total > 0 ? (value / total) * 100 : 0);
-  const cash: AssetPortfolio = {
-    qty: 0, cost: 0, avg: 0, val: 0, roi: 0, weight: weightOf(cashBalance), realizedPnl: realizedPnl.cash ?? 0,
-  };
   return {
-    portfolio: {
-      ...Object.fromEntries(entries.map(([k, p]) => [k, { ...p, weight: weightOf(p.val) }])),
-      cash,
-    },
-    totalStockValue,
+    portfolio: Object.fromEntries(entries),
+    totalStockValue: sumBy(entries, ([, p]) => p.val),
   };
 }
 
@@ -122,16 +102,11 @@ export function buildMyAccount({
   const { budgets, records, dividends } = dbHistory;
   const lastHistoryPoint = marketData[marketData.length - 1];
   const currentPriceMap = toPriceMap(livePrices || lastHistoryPoint);
-  const prevPriceMap = toPriceMap(marketData[marketData.length - 2] || lastHistoryPoint);
 
   const totalDeposit = sumBy(budgets, (b) => Number(b.amount ?? 0));
   const currentCashBalance = cashOf(budgets, records, dividends);
 
-  const realizedPnlByAsset = calculateRealizedPnl(records);
-  const totalRealizedPnl = sumBy(Object.values(realizedPnlByAsset), (v) => v);
-  const { portfolio, totalStockValue } = buildPortfolio(
-    calculatePositions(records), currentPriceMap, realizedPnlByAsset, currentCashBalance,
-  );
+  const { portfolio, totalStockValue } = buildPortfolio(calculatePositions(records), currentPriceMap);
 
   // 일별 CMA 이자 누적 (월별 시점)
   const rate = cmaRate || 0;
@@ -151,11 +126,17 @@ export function buildMyAccount({
     completedInterest + getInterestFromMonthStartToToday(budgets, records, rate, dividends, now);
   const totalAsset = totalStockValue + currentCashBalance + interestUpToToday;
 
-  // 마지막 포인트는 실시간 시세 기준 총자산
+  // 마지막 포인트는 "오늘" — 실시간 시세 기준 총자산과 지금까지의 입금 전부
+  // (이번 달 첫 거래일 전이라 이번 달 월봉이 없어도 이번 달 입금이 원금에 들어가야 수익이 부풀지 않는다)
   const chartHistory = livePrices
     ? [
         ...chartHistoryRaw.slice(0, -1),
-        { ...chartHistoryRaw[chartHistoryRaw.length - 1], investment: totalAsset, cmaInterest: interestUpToToday },
+        {
+          ...chartHistoryRaw[chartHistoryRaw.length - 1],
+          principal: totalDeposit,
+          investment: totalAsset,
+          cmaInterest: interestUpToToday,
+        },
       ]
     : chartHistoryRaw;
 
@@ -163,14 +144,11 @@ export function buildMyAccount({
     currentCashBalance,
     portfolio,
     currentPriceMap,
-    prevPriceMap,
-    totalStockValue,
     totalAsset,
     totalInvested: totalDeposit,
     chartHistory,
     currentExchangeRate: currentPriceMap.ex || 1350,
     cumulativeCmaInterestToToday: interestUpToToday,
-    totalRealizedPnl,
   };
 }
 

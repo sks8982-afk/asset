@@ -14,6 +14,8 @@ type InvestmentHistorySectionProps = {
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
   onSaveAmountOverride: (recordId: string, amountOverride: number | null) => Promise<void>;
+  /** 장부를 제대로 불러온 상태인지 — 아니면 단가·매수액 보정을 막는다 */
+  canEdit: boolean;
 };
 
 type View = 'list' | 'calendar';
@@ -52,7 +54,7 @@ function InlineNumberEdit({ initial, label, onCommit }: {
 
 /** 투자 내역 — 매수·매도 기록 목록(월·종목 필터, 단가·매수액 보정)과 달력 */
 export function InvestmentHistorySection({
-  records, names, formatNum, formatDec, onSaveAmountOverride,
+  records, names, formatNum, formatDec, onSaveAmountOverride, canEdit,
 }: InvestmentHistorySectionProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>('list');
@@ -124,7 +126,7 @@ export function InvestmentHistorySection({
                 const amount = Number(r.amount_override ?? r.amount ?? 0);
                 const qty = Number(r.quantity ?? 0);
                 const isBtc = r.asset_key === 'btc';
-                const editable = Boolean(r.id);
+                const editable = Boolean(r.id) && canEdit;
                 const canEditPrice = !isBtc && editable && qty > 0;
                 const canEditBtcAmount = isBtc && editable;
                 const price = qty > 0 ? amount / qty : Number(r.price ?? 0);

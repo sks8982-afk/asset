@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { DbHistory, DividendRecord } from '@/lib/types';
+import { LEDGER_LOCKED_MESSAGE } from './useAppData';
 import { toast } from './useToast';
 
 /** neq 조건용 — 실제로는 없는 id (전체 삭제에 사용) */
@@ -11,6 +12,8 @@ const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 type LedgerMutationsInput = {
   reload: () => Promise<void>;
   setDbHistory: React.Dispatch<React.SetStateAction<DbHistory>>;
+  /** 장부를 제대로 불러온 상태인지 — 아니면 쓰지 않는다 (이전 값 위에 덮어쓰지 않도록) */
+  canWrite: boolean;
 };
 
 /**
@@ -34,10 +37,14 @@ export async function deleteLedgerRows(): Promise<void> {
 }
 
 /** 장부 쓰기 — 배당 추가/삭제, BTC 매수액 보정, DB 초기화 (설정은 useSettings) */
-export function useLedgerMutations({ reload, setDbHistory }: LedgerMutationsInput) {
+export function useLedgerMutations({ reload, setDbHistory, canWrite }: LedgerMutationsInput) {
   const [isResetting, setIsResetting] = useState(false);
 
   const saveBtcAmountOverride = useCallback(async (recordId: string, amountOverride: number | null): Promise<void> => {
+    if (!canWrite) {
+      toast.warning(LEDGER_LOCKED_MESSAGE);
+      return;
+    }
     const { error } = await supabase
       .from('investment_records')
       .update({ amount_override: amountOverride })
@@ -50,19 +57,29 @@ export function useLedgerMutations({ reload, setDbHistory }: LedgerMutationsInpu
       ...prev,
       records: prev.records.map((r) => (r.id === recordId ? { ...r, amount_override: amountOverride } : r)),
     }));
-  }, [setDbHistory]);
+  }, [canWrite, setDbHistory]);
 
-  const addDividend = useCallback(async (dividend: Omit<DividendRecord, 'id'>): Promise<void> => {
+  /** 배당 추가 — 저장했으면 true (실패하면 입력값을 남겨 다시 시도할 수 있게) */
+  const addDividend = useCallback(async (dividend: Omit<DividendRecord, 'id'>): Promise<boolean> => {
+    if (!canWrite) {
+      toast.warning(LEDGER_LOCKED_MESSAGE);
+      return false;
+    }
     const { error } = await supabase.from('dividends').insert(dividend);
     if (error) {
       toast.error('배당금 저장에 실패했습니다.');
-      return;
+      return false;
     }
     toast.success('배당금이 기록되었습니다.');
     await reload();
-  }, [reload]);
+    return true;
+  }, [canWrite, reload]);
 
   const deleteDividend = useCallback(async (id: string): Promise<void> => {
+    if (!canWrite) {
+      toast.warning(LEDGER_LOCKED_MESSAGE);
+      return;
+    }
     const { error } = await supabase.from('dividends').delete().eq('id', id);
     if (error) {
       toast.error('배당금 삭제에 실패했습니다.');
@@ -70,10 +87,14 @@ export function useLedgerMutations({ reload, setDbHistory }: LedgerMutationsInpu
     }
     toast.info('배당금이 삭제되었습니다.');
     await reload();
-  }, [reload]);
+  }, [canWrite, reload]);
 
   /** 매수·매도 기록, 월별 입금, 배당, 잔고 스냅샷, 배치 요약 전부 삭제 (설정은 유지) */
   const resetDb = useCallback(async (): Promise<void> => {
+    if (!canWrite) {
+      toast.warning(LEDGER_LOCKED_MESSAGE);
+      return;
+    }
     setIsResetting(true);
     try {
       await deleteLedgerRows();
@@ -85,7 +106,7 @@ export function useLedgerMutations({ reload, setDbHistory }: LedgerMutationsInpu
       await reload();
       setIsResetting(false);
     }
-  }, [reload]);
+  }, [canWrite, reload]);
 
   return {
     saveBtcAmountOverride,

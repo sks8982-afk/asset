@@ -5,17 +5,20 @@ import { ChevronDown, PieChart } from 'lucide-react';
 import type { CoreAllocation, CoreGroupAllocation, HeldPosition } from '@/lib/holdings';
 import { DRIFT_ALERT_PP, coreGroupLabel } from '@/lib/monthly';
 import { formatNum, formatSignedPercent } from '@/lib/utils';
+import { maskReturn } from '../../hooks/useHideReturns';
 import { Card } from '../ui/Card';
 import { ProgressBar } from '../ui/ProgressBar';
 import { NOTICE_CLASS, NOTE_CLASS, signToneClass } from '../ui/styles';
 
 type CoreAllocationCardProps = {
   allocation: CoreAllocation;
+  /** 수익률 숨기기 — 평가액·수익률을 *** 로 (원금·비중은 그대로) */
+  hideReturns: boolean;
 };
 
 const round1 = (v: number): string => (Math.round(v * 10) / 10).toString();
 
-function PositionRow({ position }: { position: HeldPosition }) {
+function PositionRow({ position, hideReturns }: { position: HeldPosition; hideReturns: boolean }) {
   return (
     <li className="py-2.5 first:pt-0 last:pb-0">
       <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{position.name}</p>
@@ -31,19 +34,20 @@ function PositionRow({ position }: { position: HeldPosition }) {
         <div className="flex justify-between gap-2">
           <dt className="text-slate-500 dark:text-slate-400">현재가</dt>
           <dd className="font-semibold text-slate-800 dark:text-slate-200">
-            {position.price > 0 ? `${formatNum(position.price)}원` : '—'}
+            {/* 수량 × 현재가 = 평가액이므로 숨길 때는 현재가도 가린다 */}
+            {position.price > 0 ? `${maskReturn(formatNum(position.price), hideReturns)}원` : '—'}
           </dd>
         </div>
         <div className="flex justify-between gap-2">
           <dt className="text-slate-500 dark:text-slate-400">평가액</dt>
-          <dd className="font-semibold text-slate-800 dark:text-slate-200">{formatNum(position.value)}원</dd>
+          <dd className="font-semibold text-slate-800 dark:text-slate-200">{maskReturn(formatNum(position.value), hideReturns)}원</dd>
         </div>
       </dl>
     </li>
   );
 }
 
-function GroupBlock({ group, hasCore }: { group: CoreGroupAllocation; hasCore: boolean }) {
+function GroupBlock({ group, hasCore, hideReturns }: { group: CoreGroupAllocation; hasCore: boolean; hideReturns: boolean }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
   const drifted = Math.abs(group.deviationPp) > DRIFT_ALERT_PP;
@@ -51,12 +55,14 @@ function GroupBlock({ group, hasCore }: { group: CoreGroupAllocation; hasCore: b
     <section className="py-4 first:pt-0 last:pb-0">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{group.label}</h3>
-        <p className="text-base font-bold tabular-nums text-slate-900 dark:text-slate-100">{formatNum(group.value)}원</p>
+        <p className="text-base font-bold tabular-nums text-slate-900 dark:text-slate-100">
+          {maskReturn(formatNum(group.value), hideReturns)}원
+        </p>
       </div>
       <p className="mt-0.5 text-xs tabular-nums text-slate-500 dark:text-slate-400">
         원금 {formatNum(group.cost)}원 · 수익률{' '}
-        <span className={`font-semibold ${signToneClass(group.roiPct)}`}>
-          {group.roiPct == null ? '—' : formatSignedPercent(group.roiPct)}
+        <span className={`font-semibold ${signToneClass(hideReturns ? null : group.roiPct)}`}>
+          {group.roiPct == null ? '—' : maskReturn(formatSignedPercent(group.roiPct), hideReturns)}
         </span>
       </p>
 
@@ -90,7 +96,7 @@ function GroupBlock({ group, hasCore }: { group: CoreGroupAllocation; hasCore: b
           {open && (
             <ul id={listId} className="mt-2 divide-y divide-slate-100 rounded-xl bg-slate-50 p-3 dark:divide-slate-700/60 dark:bg-slate-900/40">
               {group.positions.map((p) => (
-                <PositionRow key={p.key} position={p} />
+                <PositionRow key={p.key} position={p} hideReturns={hideReturns} />
               ))}
             </ul>
           )}
@@ -101,14 +107,14 @@ function GroupBlock({ group, hasCore }: { group: CoreGroupAllocation; hasCore: b
 }
 
 /** 코어 비중 — S&P500·나스닥100 묶음별 평가액·원금·수익률과 목표 대비 비중 */
-export function CoreAllocationCard({ allocation }: CoreAllocationCardProps) {
+export function CoreAllocationCard({ allocation, hideReturns }: CoreAllocationCardProps) {
   const { groups, total, boost } = allocation;
   const target = groups.map((g) => `${g.label} ${round1(g.targetPct)}`).join(' : ');
   return (
     <Card title="코어 비중" subtitle={`목표 ${target} · 코어 평가액 기준`} icon={<PieChart size={18} />}>
       <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
         {groups.map((g) => (
-          <GroupBlock key={g.group} group={g} hasCore={total > 0} />
+          <GroupBlock key={g.group} group={g} hasCore={total > 0} hideReturns={hideReturns} />
         ))}
       </div>
       {total <= 0 && (

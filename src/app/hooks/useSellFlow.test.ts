@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { InvestmentRecord } from '@/lib/types';
-import { countRecentSells, sellRoi } from './useSellFlow';
+import { countRecentSells, insertSellRecord, sellRoi } from './useSellFlow';
+import { mockSupabaseTables } from './supabaseFake.test-util';
 
-vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('@/lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 
 const rec = (type: 'buy' | 'sell', date: string): InvestmentRecord => ({
   date, asset_key: 'tech10', price: 1, quantity: 1, amount: 1, type,
@@ -32,5 +33,22 @@ describe('sellRoi', () => {
     expect(sellRoi(25_000, 20_000)).toBeCloseTo(-20);
     expect(sellRoi(25_000, 30_000)).toBeCloseTo(20);
     expect(sellRoi(0, 30_000)).toBe(0);
+  });
+});
+
+describe('insertSellRecord', () => {
+  const sell = { asset_key: 'tech10', quantity: 3, price: 18_000, amount: 54_000, date: '2026-11-01', reason: 'simplify' as const };
+
+  it('saves one sell row with the chosen date and reports success', async () => {
+    const calls = mockSupabaseTables();
+    expect(await insertSellRecord(sell)).toBe(true);
+    expect(calls).toEqual([
+      'investment_records.insert({"date":"2026-11-01","asset_key":"tech10","price":18000,"quantity":3,"amount":54000,"type":"sell"})',
+    ]);
+  });
+
+  it('reports failure instead of throwing', async () => {
+    mockSupabaseTables({ investment_records: 'offline' });
+    expect(await insertSellRecord(sell)).toBe(false);
   });
 });

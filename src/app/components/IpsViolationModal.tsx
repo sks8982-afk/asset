@@ -16,6 +16,8 @@ type IpsViolationModalProps = {
   policyRules: string[];
   onProceed: () => void;
   onCancel: () => void;
+  /** 매도 기록 저장 중 — 두 번 누르지 않도록 버튼을 막는다 */
+  isSaving: boolean;
 };
 
 /**
@@ -34,6 +36,7 @@ function IpsViolationModalBody({
   policyRules,
   onProceed,
   onCancel,
+  isSaving,
 }: Omit<IpsViolationModalProps, 'open'>) {
   const [acknowledged, setAcknowledged] = useState(false);
   const [countdown, setCountdown] = useState(COOLDOWN_SECONDS);
@@ -95,9 +98,6 @@ function IpsViolationModalBody({
           <p>뉴스나 SNS 때문에 두려워진 것은 아닌가?</p>
           <p>며칠만 지나면 이 결정을 후회할 가능성은?</p>
           <p>&ldquo;이번 한 번만&rdquo;이라는 생각은 반복의 시작이 아닐까?</p>
-          <p className="pt-1 text-xs text-slate-500 dark:text-slate-400">
-            Dalbar QAIB 2024: 평균 투자자는 시장 대비 연 -4% 언더퍼폼, 주 원인은 &quot;규칙 위반 매도&quot;
-          </p>
         </section>
 
         <label className={`flex cursor-pointer items-start gap-2 font-semibold ${NOTICE_CLASS}`}>
@@ -117,11 +117,18 @@ function IpsViolationModalBody({
         )}
 
         <div className="flex gap-2 pt-1">
-          <button type="button" onClick={onCancel} className={buttonClass('primary', 'md', 'flex-1 py-3')}>
+          <button type="button" onClick={onCancel} disabled={isSaving} className={buttonClass('primary', 'md', 'flex-1 py-3')}>
             원칙대로 매도 취소
           </button>
-          <button type="button" onClick={onProceed} disabled={!canProceed} className={buttonClass('danger', 'md', 'flex-1 py-3')}>
-            {countdown > 0 ? `${countdown}초 후 진행` : acknowledged ? '원칙과 다르게 매도' : '확인 체크 필요'}
+          <button
+            type="button"
+            onClick={onProceed}
+            disabled={!canProceed || isSaving}
+            className={buttonClass('danger', 'md', 'flex-1 py-3')}
+          >
+            {isSaving
+              ? '저장 중…'
+              : countdown > 0 ? `${countdown}초 후 진행` : acknowledged ? '원칙과 다르게 매도' : '확인 체크 필요'}
           </button>
         </div>
       </div>

@@ -18,10 +18,14 @@ type CheckTabProps = {
   livePrices: LivePrices | null;
   coreWeights: Record<CoreGroup, number>;
   darkMode: boolean;
+  /** 수익률 숨기기 — 평가액·수익률·차트를 가린다 (원금·비중은 보인다) */
+  hideReturns: boolean;
 };
 
 /** 점검 — 코어 비중 → 보유만 종목 → 자산 추이 → S&P500만 샀다면 */
-export function CheckTab({ myAccount, dbHistory, fullMarketHistory, livePrices, coreWeights, darkMode }: CheckTabProps) {
+export function CheckTab({
+  myAccount, dbHistory, fullMarketHistory, livePrices, coreWeights, darkMode, hideReturns,
+}: CheckTabProps) {
   const { portfolio, currentPriceMap, totalAsset, chartHistory } = myAccount;
 
   const allocation = useMemo(
@@ -36,31 +40,27 @@ export function CheckTab({ myAccount, dbHistory, fullMarketHistory, livePrices, 
   const benchmark = useMemo(() => {
     if (!fullMarketHistory.length || !livePrices) return { points: [], results: [] };
     return calculateBenchmarkComparison(
-      dbHistory.records,
-      chartHistory.map((p) => ({
-        date: String(p.date),
-        principal: Number(p.principal ?? 0),
-        investment: Number(p.investment ?? 0),
-      })),
+      dbHistory.budgets,
+      chartHistory.map((p) => ({ date: String(p.date), investment: Number(p.investment ?? 0) })),
       fullMarketHistory,
       livePrices,
     );
-  }, [chartHistory, fullMarketHistory, livePrices, dbHistory.records]);
+  }, [chartHistory, fullMarketHistory, livePrices, dbHistory.budgets]);
 
   const hasHoldOnly = holdOnly.length > 0;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
       <div className={`min-w-0 ${hasHoldOnly ? '' : 'lg:col-span-2'}`}>
-        <CoreAllocationCard allocation={allocation} />
+        <CoreAllocationCard allocation={allocation} hideReturns={hideReturns} />
       </div>
       {hasHoldOnly && (
         <div className="min-w-0">
-          <HoldOnlyCard holdings={holdOnly} />
+          <HoldOnlyCard holdings={holdOnly} hideReturns={hideReturns} />
         </div>
       )}
       <div className="min-w-0 lg:col-span-2">
-        <AssetGrowthSection chartHistory={chartHistory} darkMode={darkMode} />
+        <AssetGrowthSection chartHistory={chartHistory} darkMode={darkMode} hideReturns={hideReturns} />
       </div>
       <div className="min-w-0 lg:col-span-2">
         <BenchmarkComparisonSection
@@ -68,6 +68,7 @@ export function CheckTab({ myAccount, dbHistory, fullMarketHistory, livePrices, 
           results={benchmark.results}
           formatNum={formatNum}
           darkMode={darkMode}
+          hideReturns={hideReturns}
         />
       </div>
     </div>

@@ -3,15 +3,18 @@ import { Archive } from 'lucide-react';
 import type { HoldOnlyHolding } from '@/lib/holdings';
 import { SELL_REASON_LABELS } from '@/lib/ips';
 import { formatNum, formatSignedPercent } from '@/lib/utils';
+import { maskReturn } from '../../hooks/useHideReturns';
 import { Card } from '../ui/Card';
 import { NOTE_CLASS, signToneClass } from '../ui/styles';
 
 type HoldOnlyCardProps = {
   holdings: HoldOnlyHolding[];
+  /** 수익률 숨기기 — 평가액·수익률을 *** 로 */
+  hideReturns: boolean;
 };
 
 /** 보유만 하는 종목 — 추가 매수 없이 들고만 있는 종목 (없으면 숨김) */
-export function HoldOnlyCard({ holdings }: HoldOnlyCardProps) {
+export function HoldOnlyCard({ holdings, hideReturns }: HoldOnlyCardProps) {
   if (holdings.length === 0) return null;
   return (
     <Card title="보유만 하는 종목" subtitle="매수 계산에서 빠진 종목" icon={<Archive size={18} />}>
@@ -20,10 +23,10 @@ export function HoldOnlyCard({ holdings }: HoldOnlyCardProps) {
           <li key={h.key} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
             <p className="min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">{h.name}</p>
             <div className="shrink-0 text-right tabular-nums">
-              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{formatNum(h.value)}원</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{maskReturn(formatNum(h.value), hideReturns)}원</p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                <span className={`font-semibold ${signToneClass(h.roiPct)}`}>
-                  {h.roiPct == null ? '—' : formatSignedPercent(h.roiPct)}
+                <span className={`font-semibold ${signToneClass(hideReturns ? null : h.roiPct)}`}>
+                  {h.roiPct == null ? '—' : maskReturn(formatSignedPercent(h.roiPct), hideReturns)}
                 </span>
                 {' '}· 총자산의 {h.sharePct.toFixed(1)}%
               </p>

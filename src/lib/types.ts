@@ -46,16 +46,15 @@ export type DividendRecord = {
   note?: string;
 };
 
-/** 자산별 포트폴리오 상태 */
+/** 자산별 포트폴리오 상태 (이동평균법) */
 export type AssetPortfolio = {
   qty: number;
+  /** 남은 보유분 원가 */
   cost: number;
+  /** 평균단가 */
   avg: number;
+  /** 평가액 (현재가 × 수량) */
   val: number;
-  roi: number;
-  weight: number;
-  /** 실현 손익 (매도 기록 기반) */
-  realizedPnl: number;
 };
 
 /** DB에서 로드하는 전체 히스토리 */
@@ -72,15 +71,11 @@ export type MyAccountData = {
   currentCashBalance: number;
   portfolio: Record<string, AssetPortfolio>;
   currentPriceMap: Record<string, number>;
-  prevPriceMap: Record<string, number>;
-  totalStockValue: number;
   totalAsset: number;
   totalInvested: number;
   chartHistory: ChartDataPoint[];
   currentExchangeRate: number;
   cumulativeCmaInterestToToday: number;
-  /** 총 실현 손익 */
-  totalRealizedPnl: number;
 };
 
 /** 차트 데이터 포인트 */
@@ -90,8 +85,6 @@ export type ChartDataPoint = {
   investment: number;
   cash: number;
   cmaInterest: number;
-  /** 월별 ROI % */
-  roiPct?: number;
   [key: string]: string | number | undefined;
 };
 

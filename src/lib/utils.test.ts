@@ -3,7 +3,7 @@ import type { DividendRecord, InvestmentRecord, MonthlyBudget } from './types';
 import {
   calculatePositions, calculateRealizedPnl, calculateXirr,
   getCashBalanceOnDate, getCumulativeInterestByMonths, getInterestAccruedInMonth,
-  getInterestFromMonthStartToToday, formatSignedPercent, planCoreBuys,
+  getInterestFromMonthStartToToday, formatSignedPercent, planCoreBuys, sellablePositionOn,
 } from './utils';
 
 const buy = (
@@ -217,6 +217,42 @@ describe('calculateXirr', () => {
     expect(calculateXirr([{ date: '2025-01-01', amount: -1 }, { date: '2025-02-01', amount: -1 }])).toBeNull();
     expect(calculateXirr([{ date: '2025-01-01', amount: 1 }, { date: '2025-02-01', amount: 1 }])).toBeNull();
     expect(calculateXirr([{ date: '2025-01-01', amount: -1000 }, { date: '2025-01-02', amount: 1 }])).toBeNull();
+  });
+});
+
+describe('sellablePositionOn', () => {
+  const records = [
+    buy('2025-01-10', 'tech10', 100, 10),
+    buy('2025-03-10', 'tech10', 200, 10), // 평균 150
+    sell('2025-05-10', 'tech10', 300, 8), // 12주 남음
+    buy('2025-06-10', 'gold', 50, 4),
+  ];
+
+  it('uses the holding and moving-average cost as of the sell date', () => {
+    expect(sellablePositionOn(records, 'tech10', '2025-02-01')).toEqual({ qty: 10, avgCost: 100 });
+    expect(sellablePositionOn(records, 'tech10', '2025-12-31')).toEqual({ qty: 12, avgCost: 150 });
+    // 매수 전 날짜에는 팔 것이 없다
+    expect(sellablePositionOn(records, 'gold', '2025-06-09')).toEqual({ qty: 0, avgCost: 0 });
+    expect(sellablePositionOn(records, 'gold', '2025-06-10')).toEqual({ qty: 4, avgCost: 50 });
+  });
+
+  it('never lets a backdated sell push a later holding below zero', () => {
+    // 4월 기준 20주 보유지만 5월에 8주를 팔았으므로 오늘 남은 12주까지만 팔 수 있다
+    expect(sellablePositionOn(records, 'tech10', '2025-04-01')).toEqual({ qty: 12, avgCost: 150 });
+    // 전량 매도한 뒤에는 그 전 날짜로도 팔 수 없다
+    const exited = [...records, sell('2025-07-01', 'tech10', 300, 12)];
+    expect(sellablePositionOn(exited, 'tech10', '2025-04-01').qty).toBe(0);
+  });
+
+  it('counts sells already recorded on the same day', () => {
+    const sameDay = [buy('2025-01-10', 'snp', 100, 10), sell('2025-01-10', 'snp', 110, 4)];
+    expect(sellablePositionOn(sameDay, 'snp', '2025-01-10')).toEqual({ qty: 6, avgCost: 100 });
+    expect(sellablePositionOn(sameDay, 'snp', '2025-01-09').qty).toBe(0);
+  });
+
+  it('handles BTC fractional quantities with an amount override', () => {
+    const btc = [buy('2025-01-10', 'btc', 100_000_000, 0.0099, { amount: 990_000, amount_override: 1_000_000 })];
+    expect(sellablePositionOn(btc, 'btc', '2025-02-01').qty).toBeCloseTo(0.01);
   });
 });
 

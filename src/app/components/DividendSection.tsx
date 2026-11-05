@@ -12,16 +12,21 @@ type DividendSectionProps = {
   dividends: DividendRecord[];
   names: Record<string, string>;
   formatNum: (n: number) => string;
-  onAddDividend: (dividend: Omit<DividendRecord, 'id'>) => Promise<void>;
+  /** 저장했으면 true (실패하면 입력값을 남긴다) */
+  onAddDividend: (dividend: Omit<DividendRecord, 'id'>) => Promise<boolean>;
   onDeleteDividend: (id: string) => Promise<void>;
+  /** 장부를 제대로 불러온 상태인지 — 아니면 추가·삭제를 막는다 */
+  canEdit: boolean;
 };
 
 /** 배당 — 연도별 합계, 기록 추가·삭제 */
-export function DividendSection({ dividends, names, formatNum, onAddDividend, onDeleteDividend }: DividendSectionProps) {
+export function DividendSection({
+  dividends, names, formatNum, onAddDividend, onDeleteDividend, canEdit,
+}: DividendSectionProps) {
   const ids = { date: useId(), asset: useId(), amount: useId(), note: useId() };
   const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [date, setDate] = useState(todayISO);
+  const [date, setDate] = useState('');
   const [assetKey, setAssetKey] = useState('');
   const [amount, setAmount] = useState('');
   const [isReinvested, setIsReinvested] = useState(false);
@@ -42,13 +47,20 @@ export function DividendSection({ dividends, names, formatNum, onAddDividend, on
     }
     setSaving(true);
     try {
-      await onAddDividend({ date, asset_key: assetKey, amount: Number(amount), is_reinvested: isReinvested, note });
+      const saved = await onAddDividend({ date, asset_key: assetKey, amount: Number(amount), is_reinvested: isReinvested, note });
+      if (!saved) return;
       setAmount('');
       setNote('');
       setShowForm(false);
     } finally {
       setSaving(false);
     }
+  };
+
+  /** 폼을 열 때마다 날짜를 오늘(KST)로 — 화면을 오래 켜 둬도 어제 날짜로 기록되지 않도록 */
+  const openForm = () => {
+    setDate(todayISO());
+    setShowForm(true);
   };
 
   return (
@@ -124,7 +136,7 @@ export function DividendSection({ dividends, names, formatNum, onAddDividend, on
               배당 재투자
             </label>
             <div className="flex gap-2">
-              <button type="button" onClick={handleAdd} disabled={saving} className={buttonClass('primary')}>
+              <button type="button" onClick={handleAdd} disabled={saving || !canEdit} className={buttonClass('primary')}>
                 {saving ? '저장 중…' : '추가'}
               </button>
               <button type="button" onClick={() => setShowForm(false)} className={buttonClass('secondary')}>
@@ -133,7 +145,7 @@ export function DividendSection({ dividends, names, formatNum, onAddDividend, on
             </div>
           </div>
         ) : (
-          <button type="button" onClick={() => setShowForm(true)} className={buttonClass('secondary', 'sm')}>
+          <button type="button" onClick={openForm} disabled={!canEdit} className={buttonClass('secondary', 'sm')}>
             <Plus size={14} aria-hidden="true" /> 배당 추가
           </button>
         )}
@@ -149,7 +161,7 @@ export function DividendSection({ dividends, names, formatNum, onAddDividend, on
                 </span>
                 <span className="flex shrink-0 items-center gap-1">
                   <span className="font-bold tabular-nums text-slate-900 dark:text-slate-100">{formatNum(d.amount)}원</span>
-                  {d.id && (
+                  {d.id && canEdit && (
                     <button
                       type="button"
                       onClick={() => {

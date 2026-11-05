@@ -12,10 +12,11 @@ type PlanTabProps = {
   dbHistory: DbHistory;
   settings: AppSettings;
   updateSettings: (patch: SettingsPatch) => Promise<void>;
+  hideReturns: boolean;
 };
 
 /** 계획 — 목표 · ISA 계획 · 투자 원칙 */
-export function PlanTab({ myAccount, dbHistory, settings, updateSettings }: PlanTabProps) {
+export function PlanTab({ myAccount, dbHistory, settings, updateSettings, hideReturns }: PlanTabProps) {
   // 모바일: 목표 → ISA → 원칙 / 넓은 화면(lg): 왼쪽 목표·원칙, 오른쪽 ISA
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:grid-rows-[auto_1fr] lg:gap-6">
@@ -25,6 +26,7 @@ export function PlanTab({ myAccount, dbHistory, settings, updateSettings }: Plan
           goalAsset={settings.goalAsset}
           monthlyBudget={settings.monthlyBudget}
           onSaveGoal={(goalAsset) => void updateSettings({ goalAsset })}
+          hideReturns={hideReturns}
         />
       </div>
       <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">

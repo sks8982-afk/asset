@@ -1,8 +1,9 @@
 /**
  * 벤치마크 비교 — "같은 달에 같은 금액을 S&P500만 / 70:30에 넣었다면?"
  */
-import type { BenchmarkPoint, BenchmarkResult, InvestmentRecord } from './types';
+import type { BenchmarkPoint, BenchmarkResult, MonthlyBudget } from './types';
 import { currentYearMonth } from './date';
+import { positiveDeposits } from './monthly';
 
 /** 벤치마크 정의 — weights: 시세 키 → 비중 (합 1) */
 export type BenchmarkDef = {
@@ -65,14 +66,12 @@ function createBenchmarkBook(weights: PriceMap) {
   };
 }
 
-/** 누적 원금(principal) 차분 → 월별 입금액 (원금이 늘어난 달만) */
-function monthlyDeposits(sortedChart: readonly { date: string; principal: number }[]): Map<string, number> {
+/** 입금 행 → 달('YYYY-MM')별 입금 합계 (입금일은 KST 날짜로 저장된다, 금액이 있는 행만) */
+function monthlyDeposits(budgets: readonly Pick<MonthlyBudget, 'month_date' | 'amount'>[]): Map<string, number> {
   const deposits = new Map<string, number>();
-  let prevPrincipal = 0;
-  for (const ch of sortedChart) {
-    const monthDeposit = ch.principal - prevPrincipal;
-    if (monthDeposit > 0) deposits.set(ch.date.substring(0, 7), monthDeposit);
-    prevPrincipal = ch.principal;
+  for (const { date, amount } of positiveDeposits(budgets)) {
+    const month = date.slice(0, 7);
+    deposits.set(month, (deposits.get(month) ?? 0) + amount);
   }
   return deposits;
 }
@@ -97,19 +96,20 @@ function summarizeBenchmarks(lastPoint: BenchmarkPoint | undefined): BenchmarkRe
  * 벤치마크 대비 수익률 비교 계산
  *
  * 핵심: "같은 달에 같은 금액을 [벤치마크]에 넣었다면?"
- * - 입금 시점·금액: chartHistory 누적 원금(principal)의 월별 증가분
- * - 매수 시세: 해당 월 시세, 히스토리에 없는 달은 실시간 시세
+ * - 입금 시점·금액: 입금 행(monthly_budgets)을 달별로 묶은 합계
+ * - 매수 시세: 해당 월 시세. 시세가 없는 달의 입금은 다음 시세 달에, 마지막 시세 달 뒤의 입금
+ *   (그달 첫 거래일 전에 넣은 입금 포함)은 실시간 시세로 산다
  * - 벤치마크 종목 가격이 없는 달의 입금은 현금으로 대기 → 첫 유효 가격 달에 매수
  *
- * @param _records - 미사용 (하위호환)
- * @param chartHistory - 내 포트폴리오 월별 가치 [{date, principal, investment}]
+ * @param budgets - 입금 행 [{month_date, amount}]
+ * @param chartHistory - 내 포트폴리오 월별 가치 [{date, investment}]
  * @param marketHistory - 전체 월별 시세 [{d, snp, nasdaq, ...}]
  * @param livePrices - 실시간 시세
  * @param now - 기준 시각 (이번 달은 KST로 판정)
  */
 export function calculateBenchmarkComparison(
-  _records: InvestmentRecord[],
-  chartHistory: { date: string; principal: number; investment: number }[],
+  budgets: readonly Pick<MonthlyBudget, 'month_date' | 'amount'>[],
+  chartHistory: readonly { date: string; investment: number }[],
   marketHistory: Record<string, unknown>[],
   livePrices: Record<string, number>,
   now: Date = new Date(),
@@ -125,12 +125,13 @@ export function calculateBenchmarkComparison(
       .filter(([d]) => d.length > 0),
   );
   const sortedChart = [...chartHistory].sort((a, b) => a.date.localeCompare(b.date));
-  const depositByMonth = monthlyDeposits(sortedChart);
+  const depositByMonth = monthlyDeposits(budgets);
+  const depositMonths = Array.from(depositByMonth.keys()).sort();
   const myDataByMonth = new Map(chartHistory.map((ch) => [ch.date, ch]));
 
   // 차트 범위: chartHistory 시작점(또는 첫 입금 월 중 빠른 쪽)부터
   const allMonths = Array.from(priceByMonth.keys()).filter((d) => d.length >= 7).sort();
-  const firstDepositMonth = Array.from(depositByMonth.keys()).sort()[0];
+  const firstDepositMonth = depositMonths[0];
   if (!firstDepositMonth || allMonths.length === 0) {
     return { points: [], results: [] };
   }
@@ -144,9 +145,20 @@ export function calculateBenchmarkComparison(
   const bookValues = (): Record<string, number> =>
     Object.fromEntries(BENCHMARKS.map((bm, i) => [bm.key, books[i].value(markPrices)]));
 
+  /** 아직 사지 않은 입금 중 month 이하인 달의 합계 (시세가 없던 달의 입금은 다음 시세 달로 넘어온다) */
+  let nextDepositIndex = 0;
+  const takeDepositsUntil = (month: string): number => {
+    let sum = 0;
+    while (nextDepositIndex < depositMonths.length && depositMonths[nextDepositIndex] <= month) {
+      sum += depositByMonth.get(depositMonths[nextDepositIndex]) ?? 0;
+      nextDepositIndex += 1;
+    }
+    return sum;
+  };
+
   const points: BenchmarkPoint[] = [];
   for (const ym of relevantMonths) {
-    const deposit = depositByMonth.get(ym) ?? 0;
+    const deposit = takeDepositsUntil(ym.substring(0, 7));
     cumulativeDeposit += deposit;
     const monthPrices = priceByMonth.get(ym) ?? {};
     markPrices = { ...markPrices, ...monthPrices };
@@ -158,22 +170,18 @@ export function calculateBenchmarkComparison(
     points.push({
       date: ym,
       myPortfolio: myData?.investment ?? (cumulativeDeposit > 0 ? cumulativeDeposit : 0),
-      principal: myData?.principal ?? cumulativeDeposit,
+      principal: cumulativeDeposit,
       ...bookValues(),
     });
   }
 
-  // ── 히스토리에 없는 월의 입금 (실시간 시세로 매수, 없으면 대기 현금) ──
+  // ── 마지막 시세 달 뒤의 입금 (그달 첫 거래일 전 입금 포함) — 실시간 시세로 매수, 없으면 대기 현금 ──
   const live = validPrices(livePrices ?? {}, priceKeys);
-  const lastHistoryMonth = relevantMonths[relevantMonths.length - 1] ?? '';
-  const remainingMonths = Array.from(depositByMonth.keys())
-    .filter((ym) => ym > lastHistoryMonth.substring(0, 7))
-    .sort();
-  for (const ym of remainingMonths) {
-    const deposit = depositByMonth.get(ym) ?? 0;
-    cumulativeDeposit += deposit;
+  const laterDeposit = takeDepositsUntil('9999-12');
+  if (laterDeposit > 0) {
+    cumulativeDeposit += laterDeposit;
     for (const book of books) {
-      book.deposit(deposit);
+      book.deposit(laterDeposit);
       book.settle(live);
     }
   }
@@ -184,12 +192,10 @@ export function calculateBenchmarkComparison(
     for (const book of books) book.settle(live);
     const currentYM = currentYearMonth(now);
     const lastChart = sortedChart[sortedChart.length - 1];
-    // 총 입금액 = chartHistory 마지막 principal
-    const totalDeposit = lastChart?.principal ?? cumulativeDeposit;
     const todayPoint: BenchmarkPoint = {
       date: currentYM,
-      myPortfolio: lastChart?.investment ?? totalDeposit,
-      principal: totalDeposit,
+      myPortfolio: lastChart?.investment ?? cumulativeDeposit,
+      principal: cumulativeDeposit,
       ...bookValues(),
     };
     if (points.length > 0 && points[points.length - 1].date === currentYM) {

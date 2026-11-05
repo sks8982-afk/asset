@@ -12,6 +12,8 @@ export type RecordBatchItem = {
   count: number;
   /** 그중 매도 기록 수 */
   sellCount: number;
+  /** 같은 날 몇 번째 저장인지 (1차·2차…) */
+  nth: number;
 };
 
 type DeleteByDateModalProps = {
@@ -37,12 +39,6 @@ export function DeleteByDateModal({
 }: DeleteByDateModalProps) {
   if (!open) return null;
 
-  const dateCount: Record<string, number> = {};
-  const batchLabels = recordBatches.map((b) => {
-    dateCount[b.date] = (dateCount[b.date] ?? 0) + 1;
-    return { ...b, nth: dateCount[b.date] };
-  });
-
   return (
     <Modal
       title="기록 삭제"
@@ -54,7 +50,7 @@ export function DeleteByDateModal({
         같은 날 여러 번 저장한 경우 차수별로 나뉩니다. 삭제할 차수를 고르세요. 삭제 전에 한 번 더 확인합니다.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {batchLabels.map((b) => {
+        {recordBatches.map((b) => {
           const checked = selectedKeys.includes(b.key);
           return (
             <label

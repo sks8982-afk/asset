@@ -8,15 +8,18 @@ import { BarChart3, ChevronDown } from 'lucide-react';
 import type { BenchmarkPoint, BenchmarkResult } from '@/lib/types';
 import { BENCHMARKS } from '@/lib/benchmark';
 import { formatSignedPercent } from '@/lib/utils';
+import { maskReturn } from '../hooks/useHideReturns';
 import { Badge } from './ui/Badge';
 import { Card } from './ui/Card';
-import { PANEL_CLASS, signToneClass } from './ui/styles';
+import { NOTE_CLASS, PANEL_CLASS, signToneClass } from './ui/styles';
 
 type BenchmarkComparisonSectionProps = {
   points: BenchmarkPoint[];
   results: BenchmarkResult[];
   formatNum: (n: number) => string;
   darkMode: boolean;
+  /** 수익률 숨기기 — 금액·수익률·순위·차트를 가린다 */
+  hideReturns: boolean;
 };
 
 const PRINCIPAL_COLOR = '#94a3b8';
@@ -37,9 +40,10 @@ type ResultRowProps = {
   color: string;
   isMe: boolean;
   formatNum: (n: number) => string;
+  hideReturns: boolean;
 };
 
-function ResultRow({ result, color, isMe, formatNum }: ResultRowProps) {
+function ResultRow({ result, color, isMe, formatNum, hideReturns }: ResultRowProps) {
   return (
     <span className="flex items-center gap-3">
       <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
@@ -47,17 +51,21 @@ function ResultRow({ result, color, isMe, formatNum }: ResultRowProps) {
         <span className={`block truncate text-sm ${isMe ? 'font-bold text-slate-900 dark:text-slate-100' : 'font-semibold text-slate-700 dark:text-slate-200'}`}>
           {result.label}
         </span>
-        <span className="block text-xs tabular-nums text-slate-500 dark:text-slate-400">{formatNum(result.finalValue)}원</span>
+        <span className="block text-xs tabular-nums text-slate-500 dark:text-slate-400">
+          {maskReturn(formatNum(result.finalValue), hideReturns)}원
+        </span>
       </span>
-      <span className={`shrink-0 text-base font-bold tabular-nums ${signToneClass(result.totalReturn)}`}>
-        {formatSignedPercent(result.totalReturn)}
+      <span className={`shrink-0 text-base font-bold tabular-nums ${signToneClass(hideReturns ? null : result.totalReturn)}`}>
+        {maskReturn(formatSignedPercent(result.totalReturn), hideReturns)}
       </span>
     </span>
   );
 }
 
 /** 같은 날 같은 금액을 S&P500만 / 70:30에 넣었다면 — 내 포트폴리오와 비교 */
-export function BenchmarkComparisonSection({ points, results, formatNum, darkMode }: BenchmarkComparisonSectionProps) {
+export function BenchmarkComparisonSection({
+  points, results, formatNum, darkMode, hideReturns,
+}: BenchmarkComparisonSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const [hiddenLines, setHiddenLines] = useState<Record<string, boolean>>({});
   const chartId = useId();
@@ -76,12 +84,14 @@ export function BenchmarkComparisonSection({ points, results, formatNum, darkMod
       title="S&P500만 샀다면?"
       subtitle="같은 날 같은 금액을 S&P500 또는 70:30에 넣었을 때"
       icon={<BarChart3 size={18} />}
-      actions={myRank > 0 ? <Badge tone={myRank === 1 ? 'emerald' : 'neutral'}>{myRank}위 / {results.length}</Badge> : undefined}
+      actions={myRank > 0 && !hideReturns
+        ? <Badge tone={myRank === 1 ? 'emerald' : 'neutral'}>{myRank}위 / {results.length}</Badge>
+        : undefined}
     >
       <ul className="space-y-2">
         {results.map((r) => {
           const isMe = r.key === 'myPortfolio';
-          const row = <ResultRow result={r} color={isMe ? myColor : r.color} isMe={isMe} formatNum={formatNum} />;
+          const row = <ResultRow result={r} color={isMe ? myColor : r.color} isMe={isMe} formatNum={formatNum} hideReturns={hideReturns} />;
           const box = `block w-full rounded-xl border px-3 py-2 text-left ${
             isMe
               ? 'border-blue-200 bg-blue-50/60 dark:border-blue-900/60 dark:bg-blue-950/20'
@@ -89,7 +99,7 @@ export function BenchmarkComparisonSection({ points, results, formatNum, darkMod
           }`;
           return (
             <li key={r.key}>
-              {expanded && !isMe ? (
+              {expanded && !isMe && !hideReturns ? (
                 <button
                   type="button"
                   aria-pressed={!hiddenLines[r.key]}
@@ -106,7 +116,7 @@ export function BenchmarkComparisonSection({ points, results, formatNum, darkMod
         })}
       </ul>
 
-      {myResult && best.key !== 'myPortfolio' && (
+      {myResult && best.key !== 'myPortfolio' && !hideReturns && (
         <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
           {best.label}이었다면{' '}
           <span className="font-bold tabular-nums text-rose-600 dark:text-rose-400">
@@ -117,18 +127,22 @@ export function BenchmarkComparisonSection({ points, results, formatNum, darkMod
         </p>
       )}
 
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        aria-controls={expanded ? chartId : undefined}
-        className="mt-4 inline-flex items-center gap-1 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-slate-300 dark:hover:text-slate-100"
-      >
-        {expanded ? '차트 접기' : '차트 보기'}
-        <ChevronDown size={16} aria-hidden="true" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
+      {hideReturns ? (
+        <p className={`mt-3 ${NOTE_CLASS}`}>수익률 숨기기가 켜져 있어 금액과 차트를 가렸습니다.</p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
+          aria-controls={expanded ? chartId : undefined}
+          className="mt-4 inline-flex items-center gap-1 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-slate-300 dark:hover:text-slate-100"
+        >
+          {expanded ? '차트 접기' : '차트 보기'}
+          <ChevronDown size={16} aria-hidden="true" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+      )}
 
-      {expanded && (
+      {expanded && !hideReturns && (
         <div id={chartId} className="mt-3">
           <div className="h-72 sm:h-96">
             <ResponsiveContainer width="100%" height="100%">
@@ -158,7 +172,7 @@ export function BenchmarkComparisonSection({ points, results, formatNum, darkMod
           <div className={`mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400 ${PANEL_CLASS}`}>
             <p className="font-semibold text-slate-700 dark:text-slate-300">비교 방식</p>
             <p>실제 입금한 날짜와 금액 그대로, 그달에 비교 대상만 샀다고 계산합니다.</p>
-            <p>매수 수수료·세금·환전 비용은 넣지 않았습니다 (비교 대상이 실제보다 유리하게 계산됩니다).</p>
+            <p>분배금은 반영하지 않아 비교 대상이 실제보다 연 1% 안팎 불리하게 계산됩니다.</p>
             <p>S&amp;P500·나스닥100은 국내 상장 환노출 ETF의 원화 시세를 씁니다.</p>
             <p>위 목록에서 비교 대상을 누르면 차트에서 그 선을 숨기거나 보입니다.</p>
           </div>

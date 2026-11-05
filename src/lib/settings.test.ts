@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_SETTINGS, LOCAL_SETTINGS_KEYS, diffSettings, isMissingColumnError, parseSettingsRow,
-  pendingMigration, readLocalSettings, removeLocalSettings, rowToSettings, settingsToRow,
-  shadowedLocalFields, sp500PctOf, splitByLegacySchema, weightsFromSp500Pct, writeLocalSettings,
+  DEFAULT_SETTINGS, LOCAL_SETTINGS_KEYS, SETTINGS_CACHE_KEY, diffSettings, isMissingColumnError, parseSettingsRow,
+  pendingMigration, readLocalSettings, readSettingsCache, removeLocalSettings, rowToSettings, settingsToRow,
+  shadowedLocalFields, sp500PctOf, splitByLegacySchema, weightsFromSp500Pct, writeLocalSettings, writeSettingsCache,
 } from './settings';
 import { DEFAULT_POLICY_RULES } from './ips';
 
@@ -162,6 +162,54 @@ describe('local storage readers', () => {
   it('reports a storage that cannot be written', () => {
     const full = { setItem: () => { throw new Error('quota'); }, removeItem: () => undefined };
     expect(writeLocalSettings(full, { goalAsset: 1 })).toBe(false);
+  });
+});
+
+describe('settings cache (used when the DB cannot be read)', () => {
+  const resolved = {
+    ...DEFAULT_SETTINGS,
+    monthlyBudget: 600_000,
+    coreWeights: { sp500: 0.65, nasdaq100: 0.35 },
+    emergencyFundAmount: 3_000_000,
+    ipsRules: ['내 규칙'],
+    isaOpenDate: '2024-03-15',
+  };
+
+  it('round-trips the full resolved settings', () => {
+    const storage = memoryStorage();
+    expect(writeSettingsCache(storage, resolved)).toBe(true);
+    expect(storage.data.has(SETTINGS_CACHE_KEY)).toBe(true);
+    expect(readSettingsCache(storage)).toEqual(resolved);
+    expect(readSettingsCache(memoryStorage())).toBeNull();
+  });
+
+  it('survives the cleanup of legacy per-field values', () => {
+    const storage = memoryStorage({ 'asset-tracker-budget': '400000' });
+    writeSettingsCache(storage, resolved);
+    removeLocalSettings(storage, Object.keys(DEFAULT_SETTINGS) as (keyof typeof DEFAULT_SETTINGS)[]);
+    expect(storage.data.has('asset-tracker-budget')).toBe(false);
+    expect(readSettingsCache(storage)).toEqual(resolved);
+  });
+
+  it('refuses a damaged cache or one missing a money field instead of falling back to defaults', () => {
+    expect(readSettingsCache(memoryStorage({ [SETTINGS_CACHE_KEY]: '{oops' }))).toBeNull();
+    expect(readSettingsCache(memoryStorage({ [SETTINGS_CACHE_KEY]: '[1,2]' }))).toBeNull();
+    const withoutFund = JSON.stringify({ ...resolved, emergencyFundAmount: undefined });
+    expect(readSettingsCache(memoryStorage({ [SETTINGS_CACHE_KEY]: withoutFund }))).toBeNull();
+    const badFund = { ...resolved, emergencyFundAmount: -1 };
+    expect(readSettingsCache(memoryStorage({ [SETTINGS_CACHE_KEY]: JSON.stringify(badFund) }))).toBeNull();
+  });
+
+  it('fills optional fields from the defaults', () => {
+    const core = JSON.stringify({ ...resolved, ipsRules: undefined, isaOpenDate: undefined, goalAsset: undefined });
+    expect(readSettingsCache(memoryStorage({ [SETTINGS_CACHE_KEY]: core }))).toEqual({
+      ...resolved, ipsRules: DEFAULT_SETTINGS.ipsRules, isaOpenDate: null, goalAsset: DEFAULT_SETTINGS.goalAsset,
+    });
+  });
+
+  it('reports a storage that cannot be used', () => {
+    expect(writeSettingsCache({ setItem: () => { throw new Error('quota'); } }, resolved)).toBe(false);
+    expect(readSettingsCache({ getItem: () => { throw new Error('blocked'); } })).toBeNull();
   });
 });
 

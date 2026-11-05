@@ -251,6 +251,48 @@ export function removeLocalSettings(storage: StorageWriter, keys: readonly Setti
   }
 }
 
+// ─── 마지막으로 불러온 설정 (DB를 못 읽을 때 대신 쓴다) ───
+
+/**
+ * DB에서 불러와 확정한 설정 전체를 이 기기에 저장하는 키.
+ * 예전 값 정리(removeLocalSettings)는 LOCAL_SETTINGS_KEYS만 지우므로 이 값은 남는다.
+ */
+export const SETTINGS_CACHE_KEY = 'asset-tracker-settings-cache';
+
+/** 캐시에 꼭 있어야 하는 필드 — 돈 계산에 쓰는 값이 하나라도 없으면 캐시를 쓰지 않는다 */
+const CACHE_REQUIRED_KEYS: readonly SettingsKey[] = ['monthlyBudget', 'coreWeights', 'cmaRate', 'emergencyFundAmount'];
+
+/** 확정한 설정을 캐시에 저장. 저장소를 쓸 수 없으면 false */
+export function writeSettingsCache(storage: Pick<Storage, 'setItem'>, settings: AppSettings): boolean {
+  try {
+    storage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(settings));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 캐시된 설정 (없거나 손상됐거나 돈 계산 값이 빠졌으면 null — 기본값으로 대신하지 않는다) */
+export function readSettingsCache(storage: StorageReader): AppSettings | null {
+  let raw: string | null = null;
+  try {
+    raw = storage.getItem(SETTINGS_CACHE_KEY);
+  } catch {
+    return null;
+  }
+  if (raw == null) return null;
+  const parsed = parseJson(raw);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const source = parsed as Record<string, unknown>;
+  const out: SettingsPatch = {};
+  for (const key of SETTINGS_KEYS) {
+    const value = PARSERS[key](source[key]);
+    if (value !== null) setField(out, key, value);
+  }
+  if (CACHE_REQUIRED_KEYS.some((key) => out[key] === undefined)) return null;
+  return { ...DEFAULT_SETTINGS, ...out };
+}
+
 // ─── 한 번만 하는 이전 (이 기기 값 → DB) ───
 
 /** DB에 컬럼은 있지만 값이 null이고 이 기기에 값이 있는 필드 — 한 번 DB로 옮길 대상 */

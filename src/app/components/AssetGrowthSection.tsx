@@ -10,6 +10,7 @@ import { ASSETS } from '@/lib/assets';
 import { formatNum } from '@/lib/utils';
 import { Card } from './ui/Card';
 import { SegmentedControl } from './ui/SegmentedControl';
+import { NOTE_CLASS } from './ui/styles';
 
 type View = 'total' | 'byAsset';
 
@@ -21,6 +22,8 @@ const VIEW_OPTIONS = [
 type AssetGrowthSectionProps = {
   chartHistory: ChartDataPoint[];
   darkMode: boolean;
+  /** 수익률 숨기기 — 총자산·평가액 선이 수익을 드러내므로 차트를 가린다 */
+  hideReturns: boolean;
 };
 
 type LabelListProps = { x?: number | string; y?: number | string; index?: number; value?: number | string | null };
@@ -62,7 +65,7 @@ function SeriesToggle({ color, dashed = false, label, shown, onClick }: SeriesTo
 const shortMonth = (v: string): string => String(v).slice(2, 7);
 
 /** 자산 추이 — 월별 총자산·누적 원금 (실제 기록), 종목별 평가액·원금 */
-export function AssetGrowthSection({ chartHistory, darkMode }: AssetGrowthSectionProps) {
+export function AssetGrowthSection({ chartHistory, darkMode, hideReturns }: AssetGrowthSectionProps) {
   const [view, setView] = useState<View>('total');
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const colors = chartColors(darkMode);
@@ -102,6 +105,14 @@ export function AssetGrowthSection({ chartHistory, darkMode }: AssetGrowthSectio
     color: colors.tooltipText,
     fontSize: 11,
   };
+
+  if (hideReturns) {
+    return (
+      <Card title="자산 추이" subtitle="월말 기준 · 실제 기록" icon={<TrendingUp size={18} />}>
+        <p className={NOTE_CLASS}>수익률 숨기기가 켜져 있어 차트를 가렸습니다. 위쪽 눈 모양 버튼으로 다시 볼 수 있습니다.</p>
+      </Card>
+    );
+  }
 
   return (
     <Card

@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useId, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { AlertTriangle, TrendingDown } from 'lucide-react';
+import type { InvestmentRecord } from '@/lib/types';
 import { SELL_REASON_LABELS, type SellReason } from '@/lib/ips';
+import { sellablePositionOn } from '@/lib/utils';
 import { todayISO } from '@/lib/date';
 import { toast } from '../hooks/useToast';
 import type { SellSubmission } from '../hooks/useSellFlow';
@@ -21,11 +23,13 @@ const SELL_REASONS: { key: SellReason; desc: string; friction: 'low' | 'high' }[
 type SellRecordModalProps = {
   open: boolean;
   onClose: () => void;
-  portfolio: Record<string, { qty: number; avg: number; val?: number }>;
+  /** 매수·매도 기록 — 매도일 기준 보유 수량·평단을 계산한다 */
+  records: InvestmentRecord[];
   names: Record<string, string>;
   currentPriceMap: Record<string, number>;
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
+  /** 저장 요청 — 창을 닫는 것은 매도 흐름(useSellFlow)이 저장에 성공한 뒤에 한다 */
   onSave: (sellData: SellSubmission) => Promise<void>;
   isSaving: boolean;
 };
@@ -34,17 +38,22 @@ const CHOICE_ON = 'border-blue-400 bg-blue-50 ring-1 ring-blue-400 dark:border-b
 const CHOICE_RISKY_ON = 'border-amber-400 bg-amber-50 ring-1 ring-amber-400 dark:border-amber-500 dark:bg-amber-950/40';
 const CHOICE_OFF = 'border-slate-200 bg-white hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800';
 
-export function SellRecordModal({
-  open,
+/** 열 때마다 새로 마운트해 입력값과 매도일(오늘, KST)을 초기화한다 */
+export function SellRecordModal({ open, ...props }: SellRecordModalProps) {
+  if (!open) return null;
+  return <SellRecordModalBody {...props} />;
+}
+
+function SellRecordModalBody({
   onClose,
-  portfolio,
+  records,
   names,
   currentPriceMap,
   formatNum,
   formatDec,
   onSave,
   isSaving,
-}: SellRecordModalProps) {
+}: Omit<SellRecordModalProps, 'open'>) {
   const ids = { date: useId(), qty: useId(), price: useId() };
   const [selectedAsset, setSelectedAsset] = useState('');
   const [sellQty, setSellQty] = useState('');
@@ -53,14 +62,19 @@ export function SellRecordModal({
   const [reason, setReason] = useState<SellReason | ''>('');
   const [confirmEmotional, setConfirmEmotional] = useState(false);
 
-  if (!open) return null;
-
-  const sellableAssets = Object.entries(portfolio).filter(([k, v]) => k !== 'cash' && v.qty > 0);
-  const selectedPortfolio = selectedAsset ? portfolio[selectedAsset] : null;
+  /** 매도일에 팔 수 있는 자산 (그날까지의 보유, 그 뒤 매도 기록까지 반영) */
+  const sellableAssets = useMemo(
+    () => Object.keys(names)
+      .filter((key) => key !== 'cash')
+      .map((key) => [key, sellablePositionOn(records, key, sellDate)] as const)
+      .filter(([, position]) => position.qty > 0),
+    [names, records, sellDate],
+  );
+  const selectedPosition = sellableAssets.find(([key]) => key === selectedAsset)?.[1] ?? null;
   const qty = Number(sellQty) || 0;
   const price = Number(sellPrice) || 0;
   const totalAmount = qty * price;
-  const avgCost = selectedPortfolio?.avg ?? 0;
+  const avgCost = selectedPosition?.avgCost ?? 0;
   const estimatedPnl = qty * (price - avgCost);
 
   const handleSelectAsset = (key: string) => {
@@ -70,16 +84,16 @@ export function SellRecordModal({
   };
 
   const handleSellAll = () => {
-    if (selectedPortfolio) setSellQty(String(selectedPortfolio.qty));
+    if (selectedPosition) setSellQty(String(selectedPosition.qty));
   };
 
   const handleSubmit = async () => {
-    if (!selectedAsset || qty <= 0 || price <= 0) {
+    if (!selectedPosition || qty <= 0 || price <= 0) {
       toast.warning('자산, 수량, 단가를 모두 입력해 주세요.');
       return;
     }
-    if (selectedPortfolio && qty > selectedPortfolio.qty) {
-      toast.warning(`보유 수량(${formatDec(selectedPortfolio.qty)})을 초과할 수 없습니다.`);
+    if (qty > selectedPosition.qty) {
+      toast.warning(`매도일 기준 팔 수 있는 수량(${formatDec(selectedPosition.qty)}주)을 넘습니다.`);
       return;
     }
     if (!reason) {
@@ -91,12 +105,6 @@ export function SellRecordModal({
       return;
     }
     await onSave({ asset_key: selectedAsset, quantity: qty, price, amount: totalAmount, date: sellDate, reason });
-    setSelectedAsset('');
-    setSellQty('');
-    setSellPrice('');
-    setReason('');
-    setConfirmEmotional(false);
-    onClose();
   };
 
   return (
@@ -116,7 +124,7 @@ export function SellRecordModal({
         <div>
           <p className={LABEL_CLASS}>매도 자산</p>
           <div className="mt-1 grid grid-cols-2 gap-2">
-            {sellableAssets.map(([key, data]) => (
+            {sellableAssets.map(([key, position]) => (
               <button
                 key={key}
                 type="button"
@@ -127,16 +135,16 @@ export function SellRecordModal({
                 }`}
               >
                 <span className="block truncate font-semibold text-slate-800 dark:text-slate-100">{names[key] ?? key}</span>
-                <span className="block text-xs tabular-nums text-slate-500 dark:text-slate-400">{formatDec(data.qty)}주 보유</span>
+                <span className="block text-xs tabular-nums text-slate-500 dark:text-slate-400">{formatDec(position.qty)}주 매도 가능</span>
               </button>
             ))}
           </div>
           {sellableAssets.length === 0 && (
-            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">매도 가능한 자산이 없습니다.</p>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">이 날짜에 팔 수 있는 자산이 없습니다.</p>
           )}
         </div>
 
-        {selectedAsset && selectedPortfolio && (
+        {selectedPosition && (
           <>
             <div>
               <div className="flex items-center justify-between">
@@ -152,7 +160,7 @@ export function SellRecordModal({
                 inputMode="decimal"
                 value={sellQty}
                 onChange={(e) => setSellQty(e.target.value)}
-                placeholder={`최대 ${formatDec(selectedPortfolio.qty)}`}
+                placeholder={`최대 ${formatDec(selectedPosition.qty)}`}
                 className={`${INPUT_CLASS} mt-1 w-full tabular-nums`}
               />
             </div>
@@ -176,7 +184,7 @@ export function SellRecordModal({
                 <dd className="font-bold text-slate-900 dark:text-slate-100">{formatNum(totalAmount)}원</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-500 dark:text-slate-400">평균 매수가</dt>
+                <dt className="text-slate-500 dark:text-slate-400">평균 매수가 (매도일 기준)</dt>
                 <dd className="text-slate-800 dark:text-slate-200">{formatNum(avgCost)}원</dd>
               </div>
               <div className="flex justify-between">
@@ -219,7 +227,6 @@ export function SellRecordModal({
               {reason === 'other' && (
                 <div className={`mt-3 ${NOTICE_CLASS}`}>
                   <p className="font-bold">이 매도가 정말 필요한가요? 감정에 휘둘리고 있을 수 있습니다.</p>
-                  <p className="mt-1 text-xs">과거 통계: 감정 매도는 평균적으로 6개월 내 재매수 시 가격이 더 높습니다.</p>
                   <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs font-semibold">
                     <input
                       type="checkbox"
@@ -238,7 +245,7 @@ export function SellRecordModal({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={isSaving || !selectedAsset || qty <= 0 || !reason}
+          disabled={isSaving || !selectedPosition || qty <= 0 || !reason}
           className={buttonClass('danger', 'md', 'w-full py-3')}
         >
           {isSaving ? '저장 중…' : '매도 기록 저장'}

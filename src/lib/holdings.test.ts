@@ -5,7 +5,7 @@ import { coreAllocation, holdOnlyHoldings } from './holdings';
 const WEIGHTS_7030 = { sp500: 0.7, nasdaq100: 0.3 };
 
 const position = (qty: number, avg: number, price: number): AssetPortfolio => ({
-  qty, avg, cost: qty * avg, val: qty * price, roi: 0, weight: 0, realizedPnl: 0,
+  qty, avg, cost: qty * avg, val: qty * price,
 });
 
 const prices = { snp: 25_000, nasdaq: 120_000, nasdaq_kodex: 25_000, tech10: 18_000, gold: 50_000, samsung: 0 };

@@ -20,6 +20,8 @@ type MonthlyPlanCardProps = {
   settings: AppSettings;
   updateSettings: (patch: SettingsPatch) => Promise<void>;
   reload: () => Promise<void>;
+  /** 기록할 수 없는 이유 (장부·설정을 못 불러옴). null이면 기록 가능 */
+  saveBlockedReason: string | null;
 };
 
 const INPUT_CLASS =
@@ -79,7 +81,9 @@ function PlanRowItem({ row, onQty, onPrice, livePrice }: PlanRowItemProps) {
 }
 
 /** 이번 달 적립 — 입금액 → 70:30 정수 주 → 수량·체결가 확인 → 장부 기록 */
-export function MonthlyPlanCard({ myAccount, dbHistory, settings, updateSettings, reload }: MonthlyPlanCardProps) {
+export function MonthlyPlanCard({
+  myAccount, dbHistory, settings, updateSettings, reload, saveBlockedReason,
+}: MonthlyPlanCardProps) {
   const depositId = useId();
   const thisMonth = currentYearMonth();
   const monthBudget = dbHistory.budgets
@@ -91,6 +95,8 @@ export function MonthlyPlanCard({ myAccount, dbHistory, settings, updateSettings
   const target = corePercents(settings.coreWeights);
   const current = corePercents({ sp500: plan.drift.sp500.weight, nasdaq100: plan.drift.nasdaq100.weight });
   const { cash, totals } = plan;
+  // 직접 입력한 입금액이 기본값과 다를 때만 — 이번 달 기록이 있어 자동으로 0원이 된 것은 기본값 후보가 아니다
+  const canSaveAsDefault = plan.depositEdited && plan.deposit > 0 && plan.deposit !== settings.monthlyBudget;
 
   const saveAsDefault = () => {
     void updateSettings({ monthlyBudget: plan.deposit });
@@ -117,7 +123,7 @@ export function MonthlyPlanCard({ myAccount, dbHistory, settings, updateSettings
             />
             <span className="text-sm font-semibold text-slate-500">원</span>
           </span>
-          {plan.deposit !== settings.monthlyBudget && (
+          {canSaveAsDefault && (
             <button
               type="button"
               onClick={saveAsDefault}
@@ -142,10 +148,13 @@ export function MonthlyPlanCard({ myAccount, dbHistory, settings, updateSettings
           </span>
         </div>
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          장부 현금 {formatNum(cash.ledgerCash)}원
-          {cash.accruedInterest >= 1 && ` + CMA 이자 ${formatNum(cash.accruedInterest)}원`}
-          {' '}− 비상금 {formatNum(cash.emergencyFund)}원
+          장부 현금 {formatNum(cash.ledgerCash)}원 − 비상금 {formatNum(cash.emergencyFund)}원
         </p>
+        {cash.accruedInterest >= 1 && (
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            추정 CMA 이자 {formatNum(cash.accruedInterest)}원 (계산에서 제외)
+          </p>
+        )}
         {cash.blockedByEmergencyFund && (
           <p className="mt-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
             설정의 비상금이 장부 현금보다 커서 잔돈이 투자되지 않고 있습니다.
@@ -189,6 +198,9 @@ export function MonthlyPlanCard({ myAccount, dbHistory, settings, updateSettings
           <p>
             현재 코어 비중 S&amp;P500 {current.sp500}% : 나스닥100 {current.nasdaq100}% (목표 {target.sp500}:{target.nasdaq100})
           </p>
+          {plan.missingPrice && (
+            <p>시세를 받지 못한 종목이 있어 비중이 실제와 다를 수 있습니다.</p>
+          )}
           {plan.groupToBoost && (
             <p className="font-semibold text-amber-700 dark:text-amber-400">
               목표에서 5%p 이상 벗어났습니다. 이번 달 수량을 {coreGroupLabel(plan.groupToBoost)} 쪽으로 늘리면 더 빨리 맞춰집니다.
@@ -200,12 +212,17 @@ export function MonthlyPlanCard({ myAccount, dbHistory, settings, updateSettings
       <button
         type="button"
         onClick={() => void saveMonth({ deposit: plan.deposit, rows: plan.rows, budget: plan.budget })}
-        disabled={isSaving}
+        disabled={isSaving || saveBlockedReason != null}
         className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-60"
       >
         {isSaving ? <RefreshCcw size={16} className="animate-spin" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />}
         {isSaving ? '저장 중…' : hasMonthRow ? '추가 매수 기록' : '이번 달 기록하기'}
       </button>
+      {saveBlockedReason && (
+        <p role="status" className="mt-2 break-keep text-center text-xs font-semibold text-amber-700 dark:text-amber-400">
+          {saveBlockedReason}
+        </p>
+      )}
       <p className="mt-2 text-center text-[11px] text-slate-400">
         환율 1USD = {formatNum(myAccount.currentExchangeRate)}원
       </p>

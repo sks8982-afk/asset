@@ -17,9 +17,6 @@ export const NAMES: Record<string, string> = {
   cash: '현금(CMA)',
 };
 
-/** 국내 자산 키 목록 */
-export const DOMESTIC_ASSET_KEYS = keysByTaxClass('domestic_equity', 'gold_etf');
-
 /**
  * ISA 계좌 대상 자산 키 (국내 상장 ETF/주식만 — BTC 제외)
  * 배당(분배금)은 모두 ISA 과세 대상, 매매손익은 TAXABLE_GAIN_KEYS만 손익통산

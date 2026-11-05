@@ -26,6 +26,8 @@ type SettingsModalProps = {
   /** 장부 전체 삭제 */
   onResetDb: () => Promise<void>;
   isResetting: boolean;
+  /** 장부를 제대로 불러온 상태인지 — 아니면 초기화를 막는다 */
+  canResetDb: boolean;
 };
 
 export function SettingsModal(props: SettingsModalProps) {
@@ -55,7 +57,7 @@ function FieldRow({ label, htmlFor, hint, children }: FieldRowProps) {
   );
 }
 
-function SettingsModalBody({ onClose, settings, onSave, onResetDb, isResetting }: SettingsModalProps) {
+function SettingsModalBody({ onClose, settings, onSave, onResetDb, isResetting, canResetDb }: SettingsModalProps) {
   const { signOut } = useAuth();
   const ids = { budget: useId(), weight: useId(), cma: useId(), fund: useId(), goal: useId(), isa: useId(), reset: useId() };
   const [signingOut, setSigningOut] = useState(false);
@@ -87,7 +89,7 @@ function SettingsModalBody({ onClose, settings, onSave, onResetDb, isResetting }
   };
 
   const handleResetDb = async () => {
-    if (resetConfirm.trim() !== RESET_CONFIRM_WORD) return;
+    if (resetConfirm.trim() !== RESET_CONFIRM_WORD || !canResetDb) return;
     await onResetDb();
     onClose();
   };
@@ -228,11 +230,16 @@ function SettingsModalBody({ onClose, settings, onSave, onResetDb, isResetting }
         <button
           type="button"
           onClick={handleResetDb}
-          disabled={resetConfirm.trim() !== RESET_CONFIRM_WORD || isResetting}
+          disabled={resetConfirm.trim() !== RESET_CONFIRM_WORD || isResetting || !canResetDb}
           className={buttonClass('danger', 'md', 'w-full')}
         >
           {isResetting ? '초기화 중…' : 'DB 초기화'}
         </button>
+        {!canResetDb && (
+          <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+            장부를 불러오지 못해 지금은 초기화할 수 없습니다.
+          </p>
+        )}
       </section>
     </Modal>
   );

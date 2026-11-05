@@ -31,7 +31,6 @@ describe('buildMyAccount', () => {
   it('counts sell proceeds and dividends as cash', () => {
     const acc = build();
     expect(acc?.currentCashBalance).toBe(1_000_000 - 750_000 + 260_000 + 5_000);
-    expect(acc?.totalDividends).toBe(5_000);
     expect(acc?.totalInvested).toBe(1_000_000);
   });
 

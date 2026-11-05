@@ -23,7 +23,7 @@ type MonthlyPlanCardProps = {
 };
 
 const INPUT_CLASS =
-  'rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-base font-bold tabular-nums text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100';
+  'rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-right text-base font-bold tabular-nums text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100';
 
 type PlanRowItemProps = {
   row: PlanRow;
@@ -121,7 +121,7 @@ export function MonthlyPlanCard({ myAccount, dbHistory, settings, updateSettings
             <button
               type="button"
               onClick={saveAsDefault}
-              className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               기본값으로 저장
             </button>

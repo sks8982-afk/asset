@@ -7,13 +7,14 @@ type LoadingScreenProps = {
   message?: string;
 };
 
-export function LoadingScreen({
-  message = '장부 불러오는 중...',
-}: LoadingScreenProps) {
+export function LoadingScreen({ message = '장부 불러오는 중…' }: LoadingScreenProps) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--background)] font-black text-slate-400">
-      <RefreshCcw className="animate-spin mb-4" size={48} />
-      <p className="tracking-widest uppercase italic text-center">{message}</p>
+    <div
+      role="status"
+      className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[var(--background)] text-slate-500 dark:text-slate-400"
+    >
+      <RefreshCcw className="animate-spin" size={28} aria-hidden="true" />
+      <p className="text-sm font-semibold">{message}</p>
     </div>
   );
 }

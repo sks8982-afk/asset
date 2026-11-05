@@ -125,7 +125,6 @@ export function buildMyAccount({
   const prevPriceMap = toPriceMap(marketData[marketData.length - 2] || lastHistoryPoint);
 
   const totalDeposit = sumBy(budgets, (b) => Number(b.amount ?? 0));
-  const totalDividends = sumBy(dividends, (d) => Number(d.amount ?? 0));
   const currentCashBalance = cashOf(budgets, records, dividends);
 
   const realizedPnlByAsset = calculateRealizedPnl(records);
@@ -172,7 +171,6 @@ export function buildMyAccount({
     currentExchangeRate: currentPriceMap.ex || 1350,
     cumulativeCmaInterestToToday: interestUpToToday,
     totalRealizedPnl,
-    totalDividends,
   };
 }
 

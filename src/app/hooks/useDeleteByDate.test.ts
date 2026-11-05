@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BatchSummary, InvestmentRecord } from '@/lib/types';
-import { batchDepositOf } from './useDeleteByDate';
+import { BatchSummaryCleanupError, batchDepositOf, deleteBatches } from './useDeleteByDate';
+import { mockSupabaseTables } from './supabaseFake.test-util';
 
-vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('@/lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 
 const buy = (batchId: string | null, amount: number, batchDeposit?: number | null): InvestmentRecord => ({
   date: '2026-11-05', asset_key: 'snp', price: amount, quantity: 1, amount,
@@ -31,5 +32,36 @@ describe('batchDepositOf', () => {
   it('ignores sell records', () => {
     const sell: InvestmentRecord = { ...buy(null, 999), type: 'sell' };
     expect(batchDepositOf({ records: [sell], batchSummaries: [] }, '2026-11-05', null)).toBe(0);
+  });
+});
+
+describe('deleteBatches', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('deletes only the chosen batch: its records, then its summary (old records have no summary)', async () => {
+    const calls = mockSupabaseTables();
+    await deleteBatches(['2026-11-05|b1', '2026-11-04|null']);
+    expect(calls).toEqual([
+      'investment_records.delete().eq(date,2026-11-05).eq(batch_id,b1)',
+      'batch_summaries.delete().eq(batch_id,b1)',
+      'investment_records.delete().eq(date,2026-11-04).is(batch_id,null)',
+    ]);
+  });
+
+  it('reports a summary that could not be deleted, after deleting every chosen batch', async () => {
+    const calls = mockSupabaseTables({ batch_summaries: 'permission denied' });
+    const result = deleteBatches(['2026-11-05|b1', '2026-11-05|b2']);
+    await expect(result).rejects.toBeInstanceOf(BatchSummaryCleanupError);
+    await expect(result).rejects.toMatchObject({ original: { message: 'permission denied' } });
+    // 입금은 이미 줄였으므로 기록 삭제는 끝까지 한다 (중간에 멈추면 다시 지울 때 입금이 두 번 줄어든다)
+    expect(calls.filter((c) => c.startsWith('investment_records'))).toHaveLength(2);
+  });
+
+  it('stops when the records cannot be deleted', async () => {
+    const calls = mockSupabaseTables({ investment_records: 'offline' });
+    await expect(deleteBatches(['2026-11-05|b1'])).rejects.toMatchObject({ message: 'offline' });
+    expect(calls).toEqual(['investment_records.delete().eq(date,2026-11-05).eq(batch_id,b1)']);
   });
 });

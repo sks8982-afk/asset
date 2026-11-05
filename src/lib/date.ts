@@ -48,3 +48,17 @@ export function monthLabel(date: Date, timeZone: string): string {
   const { year, month } = datePartsIn(date, timeZone);
   return `${year}-${month}`;
 }
+
+/** 개월 수 → 'N년 M개월' (0인 부분은 생략, 1개월 미만·음수는 '0개월') */
+export function formatMonthsKo(totalMonths: number): string {
+  const total = Number.isFinite(totalMonths) && totalMonths > 0 ? Math.floor(totalMonths) : 0;
+  const years = Math.floor(total / 12);
+  const months = total % 12;
+  if (years === 0) return `${months}개월`;
+  return months === 0 ? `${years}년` : `${years}년 ${months}개월`;
+}
+
+/** 'YYYY-MM' 또는 'YYYY-MM-DD' → 'YYYY년 M월' */
+export function formatYearMonthKo(isoDate: string): string {
+  return `${isoDate.slice(0, 4)}년 ${Number(isoDate.slice(5, 7))}월`;
+}

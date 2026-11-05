@@ -1,24 +1,14 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import type { InvestmentRecord } from '@/lib/types';
 import { todayISO } from '@/lib/date';
-
-type CalendarRecord = {
-  id?: string;
-  date: string;
-  asset_key: string;
-  price: number | string;
-  quantity: number | string;
-  amount: number | string;
-  amount_override?: number | null;
-  is_panic_buy?: boolean;
-  type?: 'buy' | 'sell';
-};
+import { PANEL_CLASS, buttonClass } from './ui/styles';
 
 type DaySummary = {
   date: string;
-  records: CalendarRecord[];
+  records: InvestmentRecord[];
   totalBuy: number;
   totalSell: number;
   buyCount: number;
@@ -27,84 +17,76 @@ type DaySummary = {
 };
 
 type InvestmentCalendarViewProps = {
-  records: CalendarRecord[];
+  records: InvestmentRecord[];
   names: Record<string, string>;
   formatNum: (n: number) => string;
 };
 
-function getRecordAmount(r: CalendarRecord): number {
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+function recordAmount(r: InvestmentRecord): number {
   return Number(r.amount_override ?? r.amount ?? 0);
 }
 
-export function InvestmentCalendarView({
-  records,
-  names,
-  formatNum,
-}: InvestmentCalendarViewProps) {
+/** 달력 칸에 들어갈 짧은 금액 (10만원 이상은 '만' 단위) */
+function shortWon(amount: number, formatNum: (n: number) => string): string {
+  return amount >= 100_000 ? `${(amount / 10_000).toFixed(0)}만` : formatNum(amount);
+}
+
+const NAV_BUTTON = 'rounded-xl p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-blue-500 dark:text-slate-400 dark:hover:bg-slate-700';
+
+/** 투자 내역 달력 — 날짜별 매수·매도 합계, 날짜를 누르면 그날 기록 */
+export function InvestmentCalendarView({ records, names, formatNum }: InvestmentCalendarViewProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth()); // 0-indexed
+  const [month, setMonth] = useState(today.getMonth()); // 0부터
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const todayStr = todayISO();
 
-  // 날짜별 기록 그룹핑
   const dayMap = useMemo(() => {
     const map: Record<string, DaySummary> = {};
     for (const r of records) {
       const d = r.date.slice(0, 10);
-      if (!map[d]) {
-        map[d] = { date: d, records: [], totalBuy: 0, totalSell: 0, buyCount: 0, sellCount: 0, assets: [] };
-      }
-      map[d].records.push(r);
-      const amt = getRecordAmount(r);
-      if (r.type === 'sell') {
-        map[d].totalSell += amt;
-        map[d].sellCount++;
-      } else {
-        map[d].totalBuy += amt;
-        map[d].buyCount++;
-      }
-      if (!map[d].assets.includes(r.asset_key)) {
-        map[d].assets.push(r.asset_key);
-      }
+      const cur = map[d] ?? { date: d, records: [], totalBuy: 0, totalSell: 0, buyCount: 0, sellCount: 0, assets: [] };
+      const amount = recordAmount(r);
+      const isSell = r.type === 'sell';
+      map[d] = {
+        ...cur,
+        records: [...cur.records, r],
+        totalBuy: cur.totalBuy + (isSell ? 0 : amount),
+        totalSell: cur.totalSell + (isSell ? amount : 0),
+        buyCount: cur.buyCount + (isSell ? 0 : 1),
+        sellCount: cur.sellCount + (isSell ? 1 : 0),
+        assets: cur.assets.includes(r.asset_key) ? cur.assets : [...cur.assets, r.asset_key],
+      };
     }
     return map;
   }, [records]);
 
-  // 이번 달의 모든 기록 금액 (도트 크기 비교용)
   const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
-  const monthTotal = useMemo(() => {
-    return Object.entries(dayMap)
-      .filter(([d]) => d.startsWith(monthKey))
-      .reduce((sum, [, s]) => sum + s.totalBuy + s.totalSell, 0);
+  const monthStats = useMemo(() => {
+    const days = Object.values(dayMap).filter((s) => s.date.startsWith(monthKey));
+    return {
+      buyTotal: days.reduce((s, d) => s + d.totalBuy, 0),
+      sellTotal: days.reduce((s, d) => s + d.totalSell, 0),
+      tradingDays: days.length,
+    };
   }, [dayMap, monthKey]);
 
-  // 달력 그리드 계산
-  const firstDay = new Date(year, month, 1).getDay(); // 0=일요일
+  // 달력 칸 (앞뒤 빈칸 포함, 7칸씩)
+  const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const weeks: (number | null)[][] = [];
-  let currentWeek: (number | null)[] = Array(firstDay).fill(null);
+  const cells: (number | null)[] = [
+    ...Array<null>(firstDay).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
 
-  for (let d = 1; d <= daysInMonth; d++) {
-    currentWeek.push(d);
-    if (currentWeek.length === 7) {
-      weeks.push(currentWeek);
-      currentWeek = [];
-    }
-  }
-  if (currentWeek.length > 0) {
-    while (currentWeek.length < 7) currentWeek.push(null);
-    weeks.push(currentWeek);
-  }
-
-  const prevMonth = () => {
-    if (month === 0) { setYear(year - 1); setMonth(11); }
-    else setMonth(month - 1);
-    setSelectedDate(null);
-  };
-
-  const nextMonth = () => {
-    if (month === 11) { setYear(year + 1); setMonth(0); }
-    else setMonth(month + 1);
+  const moveMonth = (delta: number) => {
+    const total = year * 12 + month + delta;
+    setYear(Math.floor(total / 12));
+    setMonth(((total % 12) + 12) % 12);
     setSelectedDate(null);
   };
 
@@ -114,148 +96,117 @@ export function InvestmentCalendarView({
     setSelectedDate(null);
   };
 
-  const selectedSummary = selectedDate ? dayMap[selectedDate] : null;
-
-  // 이번 달 요약 통계
-  const monthStats = useMemo(() => {
-    let buyTotal = 0;
-    let sellTotal = 0;
-    let tradingDays = 0;
-    Object.entries(dayMap)
-      .filter(([d]) => d.startsWith(monthKey))
-      .forEach(([, s]) => {
-        buyTotal += s.totalBuy;
-        sellTotal += s.totalSell;
-        tradingDays++;
-      });
-    return { buyTotal, sellTotal, tradingDays };
-  }, [dayMap, monthKey]);
+  const selected = selectedDate ? dayMap[selectedDate] : null;
 
   return (
     <div className="space-y-4">
-      {/* 월 네비게이션 */}
       <div className="flex items-center justify-between">
-        <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-          <ChevronLeft size={18} className="text-slate-500" />
+        <button type="button" onClick={() => moveMonth(-1)} aria-label="이전 달" className={NAV_BUTTON}>
+          <ChevronLeft size={18} aria-hidden="true" />
         </button>
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-bold tabular-nums text-slate-900 dark:text-slate-100">
             {year}년 {month + 1}월
           </h3>
-          <button
-            onClick={goToday}
-            className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-          >
+          <button type="button" onClick={goToday} className={buttonClass('secondary', 'sm', 'px-2 py-1')}>
             오늘
           </button>
         </div>
-        <button onClick={nextMonth} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-          <ChevronRight size={18} className="text-slate-500" />
+        <button type="button" onClick={() => moveMonth(1)} aria-label="다음 달" className={NAV_BUTTON}>
+          <ChevronRight size={18} aria-hidden="true" />
         </button>
       </div>
 
-      {/* 월간 요약 */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
-          <p className="text-[9px] font-bold text-blue-400 uppercase">매수</p>
-          <p className="text-sm font-black text-blue-700 dark:text-blue-300">{formatNum(monthStats.buyTotal)}원</p>
+      <dl className="grid grid-cols-3 gap-2 text-center">
+        <div className={`${PANEL_CLASS} px-2 py-3`}>
+          <dt className="text-xs text-slate-500 dark:text-slate-400">매수</dt>
+          <dd className="text-sm font-bold tabular-nums text-blue-700 dark:text-blue-300">{formatNum(monthStats.buyTotal)}원</dd>
         </div>
-        <div className="bg-rose-50 dark:bg-rose-900/20 rounded-xl p-3 text-center">
-          <p className="text-[9px] font-bold text-rose-400 uppercase">매도</p>
-          <p className="text-sm font-black text-rose-700 dark:text-rose-300">{formatNum(monthStats.sellTotal)}원</p>
+        <div className={`${PANEL_CLASS} px-2 py-3`}>
+          <dt className="text-xs text-slate-500 dark:text-slate-400">매도</dt>
+          <dd className="text-sm font-bold tabular-nums text-rose-600 dark:text-rose-400">{formatNum(monthStats.sellTotal)}원</dd>
         </div>
-        <div className="bg-slate-50 dark:bg-slate-800/80 rounded-xl p-3 text-center">
-          <p className="text-[9px] font-bold text-slate-400 uppercase">거래일</p>
-          <p className="text-sm font-black text-slate-700 dark:text-slate-300">{monthStats.tradingDays}일</p>
+        <div className={`${PANEL_CLASS} px-2 py-3`}>
+          <dt className="text-xs text-slate-500 dark:text-slate-400">거래일</dt>
+          <dd className="text-sm font-bold tabular-nums text-slate-800 dark:text-slate-200">{monthStats.tradingDays}일</dd>
         </div>
-      </div>
+      </dl>
 
-      {/* 달력 그리드 */}
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden">
-        {/* 요일 헤더 */}
-        <div className="grid grid-cols-7 bg-slate-50 dark:bg-slate-800/80">
-          {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
-            <div key={d} className={`py-2 text-center text-[10px] font-black ${
-              i === 0 ? 'text-rose-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'
-            }`}>
+      <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+        <div className="grid grid-cols-7 bg-slate-50 dark:bg-slate-900/40">
+          {WEEKDAYS.map((d, i) => (
+            <div
+              key={d}
+              className={`py-2 text-center text-xs font-semibold ${
+                i === 0 ? 'text-rose-500' : i === 6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
               {d}
             </div>
           ))}
         </div>
-
-        {/* 날짜 셀 */}
         {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 border-t border-slate-100 dark:border-slate-700">
+          <div key={wi} className="grid grid-cols-7 border-t border-slate-100 dark:border-slate-700/60">
             {week.map((day, di) => {
-              if (day === null) {
-                return <div key={di} className="h-20 sm:h-24 bg-slate-50/50 dark:bg-slate-800/30" />;
-              }
-
-              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              if (day === null) return <div key={di} className="h-20 bg-slate-50/50 dark:bg-slate-900/20 sm:h-24" />;
+              const dateStr = `${monthKey}-${String(day).padStart(2, '0')}`;
               const summary = dayMap[dateStr];
-              const isToday = dateStr === todayISO();
               const isSelected = dateStr === selectedDate;
-              const isWeekend = di === 0 || di === 6;
-
-              return (
-                <div
-                  key={di}
-                  onClick={() => summary && setSelectedDate(isSelected ? null : dateStr)}
-                  className={`h-20 sm:h-24 p-1 sm:p-1.5 border-r border-slate-50 dark:border-slate-800 last:border-r-0 transition-all relative ${
-                    summary ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50' : ''
-                  } ${isSelected ? 'bg-indigo-50 dark:bg-indigo-900/20 ring-2 ring-indigo-300 dark:ring-indigo-600 z-10' : ''}`}
-                >
-                  {/* 날짜 숫자 */}
-                  <div className={`text-[11px] font-bold leading-none ${
-                    isToday
-                      ? 'bg-indigo-600 text-white w-5 h-5 rounded-full flex items-center justify-center'
-                      : isWeekend
-                        ? di === 0 ? 'text-rose-400' : 'text-blue-400'
-                        : 'text-slate-500 dark:text-slate-400'
-                  }`}>
-                    {day}
-                  </div>
-
-                  {/* 거래 표시 */}
+              const dayTone = dateStr === todayStr
+                ? 'flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white'
+                : di === 0 ? 'text-rose-500' : di === 6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400';
+              const content = (
+                <>
+                  <span className={`block text-[11px] font-bold leading-5 ${dayTone}`}>{day}</span>
                   {summary && (
-                    <div className="mt-1 space-y-0.5">
+                    <span className="mt-0.5 block space-y-0.5">
                       {summary.buyCount > 0 && (
-                        <div className="flex items-center gap-0.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
-                          <span className="text-[8px] font-bold text-blue-600 dark:text-blue-400 truncate">
-                            {summary.buyCount > 1 ? `${summary.buyCount}건 ` : ''}
-                            {monthTotal > 0 && summary.totalBuy >= 100000
-                              ? `${(summary.totalBuy / 10000).toFixed(0)}만`
-                              : formatNum(summary.totalBuy)}
+                        <span className="flex items-center gap-0.5">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" aria-hidden="true" />
+                          <span className="truncate text-[10px] font-bold text-blue-700 dark:text-blue-300">
+                            {summary.buyCount > 1 && <span className="hidden sm:inline">{summary.buyCount}건 </span>}
+                            {shortWon(summary.totalBuy, formatNum)}
                           </span>
-                        </div>
+                        </span>
                       )}
                       {summary.sellCount > 0 && (
-                        <div className="flex items-center gap-0.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-rose-500 flex-shrink-0" />
-                          <span className="text-[8px] font-bold text-rose-600 dark:text-rose-400 truncate">
-                            {summary.sellCount > 1 ? `${summary.sellCount}건 ` : ''}
-                            {monthTotal > 0 && summary.totalSell >= 100000
-                              ? `${(summary.totalSell / 10000).toFixed(0)}만`
-                              : formatNum(summary.totalSell)}
+                        <span className="flex items-center gap-0.5">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />
+                          <span className="truncate text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                            {summary.sellCount > 1 && <span className="hidden sm:inline">{summary.sellCount}건 </span>}
+                            {shortWon(summary.totalSell, formatNum)}
                           </span>
-                        </div>
+                        </span>
                       )}
-                      {/* 종목 도트 */}
-                      <div className="flex gap-0.5 flex-wrap">
-                        {summary.assets.slice(0, 4).map((ak) => (
-                          <div
-                            key={ak}
-                            className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-500"
-                            title={names[ak] ?? ak}
-                          />
+                      <span className="flex flex-wrap items-center gap-0.5" aria-hidden="true">
+                        {summary.assets.slice(0, 4).map((key) => (
+                          <span key={key} className="h-1 w-1 rounded-full bg-slate-300 dark:bg-slate-500" title={names[key] ?? key} />
                         ))}
                         {summary.assets.length > 4 && (
-                          <span className="text-[7px] text-slate-400">+{summary.assets.length - 4}</span>
+                          <span className="text-[10px] leading-none text-slate-400">+{summary.assets.length - 4}</span>
                         )}
-                      </div>
-                    </div>
+                      </span>
+                    </span>
                   )}
+                </>
+              );
+              const cellClass = `h-20 min-w-0 p-1 text-left sm:h-24 sm:p-1.5 ${
+                isSelected ? 'relative z-10 bg-blue-50 ring-2 ring-blue-300 dark:bg-blue-950/30 dark:ring-blue-700' : ''
+              }`;
+              return summary ? (
+                <button
+                  key={di}
+                  type="button"
+                  aria-pressed={isSelected}
+                  aria-label={`${dateStr} 기록 ${summary.records.length}건`}
+                  onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                  className={`${cellClass} align-top hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500 dark:hover:bg-slate-700/40`}
+                >
+                  {content}
+                </button>
+              ) : (
+                <div key={di} className={cellClass}>
+                  {content}
                 </div>
               );
             })}
@@ -263,66 +214,40 @@ export function InvestmentCalendarView({
         ))}
       </div>
 
-      {/* 선택된 날짜 상세 */}
-      {selectedSummary && (
-        <div className="bg-slate-50 dark:bg-slate-800/80 rounded-2xl p-4 border border-slate-200 dark:border-slate-600">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black text-slate-800 dark:text-slate-100">
-              {selectedDate}
+      {selected && (
+        <div className={PANEL_CLASS}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-bold tabular-nums text-slate-900 dark:text-slate-100">{selectedDate}</p>
+            <p className="flex gap-2 text-xs font-semibold tabular-nums">
+              {selected.buyCount > 0 && <span className="text-blue-700 dark:text-blue-300">매수 {formatNum(selected.totalBuy)}원</span>}
+              {selected.sellCount > 0 && <span className="text-rose-600 dark:text-rose-400">매도 {formatNum(selected.totalSell)}원</span>}
             </p>
-            <div className="flex gap-2">
-              {selectedSummary.buyCount > 0 && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                  매수 {formatNum(selectedSummary.totalBuy)}원
-                </span>
-              )}
-              {selectedSummary.sellCount > 0 && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300">
-                  매도 {formatNum(selectedSummary.totalSell)}원
-                </span>
-              )}
-            </div>
           </div>
-          <div className="space-y-2">
-            {selectedSummary.records.map((r, i) => {
+          <ul className="space-y-2">
+            {selected.records.map((r, i) => {
               const isSell = r.type === 'sell';
-              const amt = getRecordAmount(r);
               return (
-                <div
+                <li
                   key={r.id ?? i}
-                  className={`flex items-center justify-between p-2.5 rounded-xl border ${
-                    isSell
-                      ? 'bg-rose-50 dark:bg-rose-900/10 border-rose-100 dark:border-rose-800'
-                      : 'bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-800'
-                  }`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
-                      isSell
-                        ? 'bg-rose-200 dark:bg-rose-800 text-rose-700 dark:text-rose-300'
-                        : 'bg-blue-200 dark:bg-blue-800 text-blue-700 dark:text-blue-300'
-                    }`}>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={`shrink-0 text-xs font-bold ${isSell ? 'text-rose-600 dark:text-rose-400' : 'text-blue-700 dark:text-blue-300'}`}>
                       {isSell ? '매도' : '매수'}
                     </span>
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      {names[r.asset_key] ?? r.asset_key}
-                    </span>
-                    {r.is_panic_buy && (
-                      <span className="text-[8px] font-bold text-rose-500 bg-rose-100 dark:bg-rose-900/30 px-1 rounded">추매</span>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-black text-slate-800 dark:text-slate-100">
-                      {formatNum(amt)}원
-                    </p>
-                    <p className="text-[9px] text-slate-400">
+                    <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{names[r.asset_key] ?? r.asset_key}</span>
+                    {r.is_panic_buy && <span className="shrink-0 text-xs text-slate-500">추매</span>}
+                  </span>
+                  <span className="shrink-0 text-right tabular-nums">
+                    <span className="block text-sm font-bold text-slate-900 dark:text-slate-100">{formatNum(recordAmount(r))}원</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">
                       {Number(r.quantity)}주 × {formatNum(Number(r.price))}원
-                    </p>
-                  </div>
-                </div>
+                    </span>
+                  </span>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       )}
     </div>

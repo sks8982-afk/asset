@@ -1,19 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
+  CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { BarChart3, ChevronDown, ChevronUp, Trophy, TrendingDown } from 'lucide-react';
+import { BarChart3, ChevronDown } from 'lucide-react';
 import type { BenchmarkPoint, BenchmarkResult } from '@/lib/types';
-import { BENCHMARKS } from '@/lib/utils';
+import { BENCHMARKS } from '@/lib/benchmark';
+import { formatSignedPercent } from '@/lib/utils';
+import { Badge } from './ui/Badge';
+import { Card } from './ui/Card';
+import { PANEL_CLASS, signToneClass } from './ui/styles';
 
 type BenchmarkComparisonSectionProps = {
   points: BenchmarkPoint[];
@@ -22,238 +19,151 @@ type BenchmarkComparisonSectionProps = {
   darkMode: boolean;
 };
 
-const MY_PORTFOLIO_COLOR = '#0f172a';
 const PRINCIPAL_COLOR = '#94a3b8';
 
-export function BenchmarkComparisonSection({
-  points,
-  results,
-  formatNum,
-  darkMode,
-}: BenchmarkComparisonSectionProps) {
+function lineLabel(key: string): string {
+  if (key === 'myPortfolio') return '내 포트폴리오';
+  if (key === 'principal') return '누적 원금';
+  return BENCHMARKS.find((b) => b.key === key)?.label ?? key;
+}
+
+/** 만원 단위 축 */
+function axisWon(v: number, formatNum: (n: number) => string): string {
+  return v >= 10_000 ? `${(v / 10_000).toFixed(0)}만` : formatNum(v);
+}
+
+type ResultRowProps = {
+  result: BenchmarkResult;
+  color: string;
+  isMe: boolean;
+  formatNum: (n: number) => string;
+};
+
+function ResultRow({ result, color, isMe, formatNum }: ResultRowProps) {
+  return (
+    <span className="flex items-center gap-3">
+      <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className={`block truncate text-sm ${isMe ? 'font-bold text-slate-900 dark:text-slate-100' : 'font-semibold text-slate-700 dark:text-slate-200'}`}>
+          {result.label}
+        </span>
+        <span className="block text-xs tabular-nums text-slate-500 dark:text-slate-400">{formatNum(result.finalValue)}원</span>
+      </span>
+      <span className={`shrink-0 text-base font-bold tabular-nums ${signToneClass(result.totalReturn)}`}>
+        {formatSignedPercent(result.totalReturn)}
+      </span>
+    </span>
+  );
+}
+
+/** 같은 날 같은 금액을 S&P500만 / 70:30에 넣었다면 — 내 포트폴리오와 비교 */
+export function BenchmarkComparisonSection({ points, results, formatNum, darkMode }: BenchmarkComparisonSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const [hiddenLines, setHiddenLines] = useState<Record<string, boolean>>({});
+  const chartId = useId();
 
   if (points.length === 0 || results.length === 0) return null;
 
   const myResult = results.find((r) => r.key === 'myPortfolio');
-  const bestResult = results[0];
+  const best = results[0];
   const myRank = results.findIndex((r) => r.key === 'myPortfolio') + 1;
-
-  const toggleLine = (key: string) => {
-    setHiddenLines((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  // 차트 Y축 포맷 (만원 단위)
-  const formatYAxis = (v: number) => {
-    if (v >= 10000) return `${(v / 10000).toFixed(0)}만`;
-    return formatNum(v);
-  };
-
-  // 툴팁 포맷
-  const formatTooltipValue = (v: number) => `${formatNum(v)}원`;
+  const myColor = darkMode ? '#e2e8f0' : '#0f172a';
+  const tick = { fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' };
+  const toggleLine = (key: string) => setHiddenLines((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
-    <section className="bg-white dark:bg-slate-800/50 p-6 sm:p-8 rounded-[3rem] border border-slate-200 dark:border-slate-600 shadow-xl">
-      {/* 헤더 */}
-      <div
-        className="flex items-center justify-between cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center gap-3">
-          <BarChart3 className="text-indigo-600 dark:text-indigo-400" size={24} />
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100">
-              S&amp;P500만 샀다면?
-            </h2>
-            <p className="text-[11px] font-bold text-slate-400 mt-0.5">
-              같은 날 같은 금액을 S&amp;P500 또는 70:30에 넣었을 때
-            </p>
-          </div>
-          {myResult && (
-            <span className={`text-sm font-black px-3 py-1 rounded-full ${
-              myRank === 1
-                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                : myRank <= 3
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-            }`}>
-              {myRank === 1 ? '🏆' : `${myRank}위`} / {results.length}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          {myResult && (
-            <div className="text-right hidden sm:block">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">내 수익률</p>
-              <p className={`text-2xl font-black ${myResult.totalReturn >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                {myResult.totalReturn >= 0 ? '+' : ''}{myResult.totalReturn.toFixed(1)}%
-              </p>
-            </div>
-          )}
-          {expanded ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
-        </div>
-      </div>
-
-      {/* 성과 요약 카드 (항상 표시) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">
-        {results.map((r, idx) => {
+    <Card
+      title="S&P500만 샀다면?"
+      subtitle="같은 날 같은 금액을 S&P500 또는 70:30에 넣었을 때"
+      icon={<BarChart3 size={18} />}
+      actions={myRank > 0 ? <Badge tone={myRank === 1 ? 'emerald' : 'neutral'}>{myRank}위 / {results.length}</Badge> : undefined}
+    >
+      <ul className="space-y-2">
+        {results.map((r) => {
           const isMe = r.key === 'myPortfolio';
-          const isTop = idx === 0;
+          const row = <ResultRow result={r} color={isMe ? myColor : r.color} isMe={isMe} formatNum={formatNum} />;
+          const box = `block w-full rounded-xl border px-3 py-2 text-left ${
+            isMe
+              ? 'border-blue-200 bg-blue-50/60 dark:border-blue-900/60 dark:bg-blue-950/20'
+              : 'border-slate-200 dark:border-slate-700'
+          }`;
           return (
-            <div
-              key={r.key}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                isMe
-                  ? 'bg-slate-900 dark:bg-slate-700 border-slate-800 text-white ring-2 ring-indigo-400'
-                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-600'
-              } ${hiddenLines[r.key] ? 'opacity-40' : ''}`}
-              onClick={() => !isMe && toggleLine(r.key)}
-            >
-              <div className="flex items-center gap-1 mb-1">
-                {isTop && <Trophy size={12} className="text-amber-400" />}
-                <p className={`text-[9px] font-black uppercase truncate ${
-                  isMe ? 'text-indigo-300' : 'text-slate-400 dark:text-slate-500'
-                }`}>
-                  {r.label}
-                </p>
-              </div>
-              <p className={`text-lg font-black ${
-                isMe
-                  ? 'text-white'
-                  : r.totalReturn >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-500'
-              }`}>
-                {r.totalReturn >= 0 ? '+' : ''}{r.totalReturn.toFixed(1)}%
-              </p>
-              <p className={`text-[9px] font-bold ${isMe ? 'text-slate-400' : 'text-slate-400'}`}>
-                {formatNum(r.finalValue)}원
-              </p>
-              {!isMe && (
-                <div className="w-3 h-1 rounded-full mt-1" style={{ backgroundColor: r.color }} />
+            <li key={r.key}>
+              {expanded && !isMe ? (
+                <button
+                  type="button"
+                  aria-pressed={!hiddenLines[r.key]}
+                  onClick={() => toggleLine(r.key)}
+                  className={`${box} transition-opacity hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-500 dark:hover:bg-slate-700/40 ${hiddenLines[r.key] ? 'opacity-40' : ''}`}
+                >
+                  {row}
+                </button>
+              ) : (
+                <div className={box}>{row}</div>
               )}
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
-      {/* 차이 요약 */}
-      {myResult && bestResult && bestResult.key !== 'myPortfolio' && (
-        <div className="mt-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center gap-2">
-          <TrendingDown size={14} className="text-slate-400" />
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {bestResult.label}이었다면{' '}
-            <span className="font-black text-rose-500">
-              {formatNum(Math.abs(bestResult.finalValue - myResult.finalValue))}원
-            </span>
-            {bestResult.finalValue > myResult.finalValue ? ' 더 벌었을 것' : ' 덜 벌었을 것'}
-            {' '}({(bestResult.totalReturn - myResult.totalReturn).toFixed(1)}%p 차이)
-          </p>
-        </div>
+      {myResult && best.key !== 'myPortfolio' && (
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+          {best.label}이었다면{' '}
+          <span className="font-bold tabular-nums text-rose-600 dark:text-rose-400">
+            {formatNum(Math.abs(best.finalValue - myResult.finalValue))}원
+          </span>
+          {best.finalValue > myResult.finalValue ? ' 더 벌었을 것' : ' 덜 벌었을 것'}
+          <span className="tabular-nums"> ({(best.totalReturn - myResult.totalReturn).toFixed(1)}%p 차이)</span>
+        </p>
       )}
 
-      {/* 차트 (펼치기) */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        aria-controls={expanded ? chartId : undefined}
+        className="mt-4 inline-flex items-center gap-1 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-slate-300 dark:hover:text-slate-100"
+      >
+        {expanded ? '차트 접기' : '차트 보기'}
+        <ChevronDown size={16} aria-hidden="true" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+
       {expanded && (
-        <div className="mt-6">
-          <p className="text-[10px] font-bold text-slate-400 mb-2 uppercase">
-            같은 금액 · 같은 시점 입금 기준 가상 비교
-          </p>
-          <div className="h-[400px]">
+        <div id={chartId} className="mt-3">
+          <div className="h-72 sm:h-96">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={points}
-                margin={{ top: 10, right: 10, left: 10, bottom: 0 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke={darkMode ? '#334155' : '#e2e8f0'}
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tickFormatter={formatYAxis}
-                  tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={55}
-                />
+              <LineChart data={points} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#e2e8f0'} />
+                <XAxis dataKey="date" tick={tick} tickLine={false} padding={{ left: 16, right: 16 }} />
+                <YAxis tickFormatter={(v: number) => axisWon(v, formatNum)} tick={tick} tickLine={false} axisLine={false} width={48} />
                 <Tooltip
                   contentStyle={{
-                    background: darkMode ? '#1e293b' : '#fff',
-                    border: '1px solid ' + (darkMode ? '#334155' : '#e2e8f0'),
-                    borderRadius: '12px',
-                    fontSize: '11px',
+                    background: darkMode ? '#0f172a' : '#ffffff',
+                    border: `1px solid ${darkMode ? '#334155' : '#e2e8f0'}`,
+                    borderRadius: 12,
+                    fontSize: 11,
+                    color: darkMode ? '#e2e8f0' : '#0f172a',
                   }}
-                  formatter={(value: unknown, name: unknown) => {
-                    const v = Number(value ?? 0);
-                    const n = String(name ?? '');
-                    const label =
-                      n === 'myPortfolio' ? '내 포트폴리오'
-                      : n === 'principal' ? '누적 원금'
-                      : BENCHMARKS.find((b) => b.key === n)?.label ?? n;
-                    return [formatTooltipValue(v), label];
-                  }}
+                  formatter={(value: unknown, name: unknown) => [`${formatNum(Number(value ?? 0))}원`, lineLabel(String(name ?? ''))]}
                 />
-                <Legend
-                  iconType="plainline"
-                  formatter={(value: string) => {
-                    if (value === 'myPortfolio') return '내 포트폴리오';
-                    if (value === 'principal') return '누적 원금';
-                    return BENCHMARKS.find((b) => b.key === value)?.label ?? value;
-                  }}
-                  wrapperStyle={{ fontSize: '10px', fontWeight: 700 }}
-                />
-
-                {/* 누적 원금 (점선) */}
-                <Line
-                  type="monotone"
-                  dataKey="principal"
-                  stroke={PRINCIPAL_COLOR}
-                  strokeDasharray="6 3"
-                  strokeWidth={1.5}
-                  dot={false}
-                  hide={hiddenLines['principal']}
-                />
-
-                {/* 내 포트폴리오 (굵은 실선) */}
-                <Line
-                  type="monotone"
-                  dataKey="myPortfolio"
-                  stroke={darkMode ? '#e2e8f0' : MY_PORTFOLIO_COLOR}
-                  strokeWidth={3}
-                  dot={false}
-                />
-
-                {/* 벤치마크 라인들 */}
+                <Legend iconType="plainline" formatter={(value: string) => lineLabel(value)} wrapperStyle={{ fontSize: 11, fontWeight: 600 }} />
+                <Line type="monotone" dataKey="principal" stroke={PRINCIPAL_COLOR} strokeDasharray="6 3" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="myPortfolio" stroke={myColor} strokeWidth={3} dot={false} isAnimationActive={false} />
                 {BENCHMARKS.map((bm) => (
-                  <Line
-                    key={bm.key}
-                    type="monotone"
-                    dataKey={bm.key}
-                    stroke={bm.color}
-                    strokeWidth={1.5}
-                    dot={false}
-                    hide={hiddenLines[bm.key]}
-                    strokeOpacity={0.8}
-                  />
+                  <Line key={bm.key} type="monotone" dataKey={bm.key} stroke={bm.color} strokeWidth={1.5} dot={false} hide={hiddenLines[bm.key]} strokeOpacity={0.85} isAnimationActive={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
           </div>
-
-          <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/50 rounded-2xl text-[10px] text-slate-500 space-y-1">
-            <p className="font-black text-slate-600 dark:text-slate-400">📊 벤치마크 비교 방식</p>
-            <p>• 실제 입금한 날짜와 금액 그대로, 해당 월에 벤치마크만 매수했을 경우를 시뮬레이션</p>
-            <p>• 매수 수수료, 세금, 환전 비용 미반영 (실제보다 벤치마크가 유리하게 계산됨)</p>
-            <p>• S&P500·나스닥100은 국내 상장 ETF 시세 사용 (환노출 ETF의 원화 가격 기준)</p>
-            <p>• 카드를 클릭하면 해당 라인을 숨기거나 표시할 수 있습니다</p>
+          <div className={`mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400 ${PANEL_CLASS}`}>
+            <p className="font-semibold text-slate-700 dark:text-slate-300">비교 방식</p>
+            <p>실제 입금한 날짜와 금액 그대로, 그달에 비교 대상만 샀다고 계산합니다.</p>
+            <p>매수 수수료·세금·환전 비용은 넣지 않았습니다 (비교 대상이 실제보다 유리하게 계산됩니다).</p>
+            <p>S&amp;P500·나스닥100은 국내 상장 환노출 ETF의 원화 시세를 씁니다.</p>
+            <p>위 목록에서 비교 대상을 누르면 차트에서 그 선을 숨기거나 보입니다.</p>
           </div>
         </div>
       )}
-    </section>
+    </Card>
   );
 }

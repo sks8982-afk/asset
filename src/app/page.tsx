@@ -104,8 +104,6 @@ export default function RealDbTower() {
             <PlanTab
               myAccount={myAccount}
               dbHistory={dbHistory}
-              fullMarketHistory={fullMarketHistory}
-              livePrices={livePrices}
               settings={settings}
               updateSettings={updateSettings}
             />

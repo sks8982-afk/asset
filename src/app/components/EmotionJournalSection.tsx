@@ -1,55 +1,78 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Heart, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useId, useMemo, useState } from 'react';
+import { Heart, Plus, Trash2 } from 'lucide-react';
 import { todayISO } from '@/lib/date';
 import { toast } from '../hooks/useToast';
+import { CollapsibleCard } from './ui/CollapsibleCard';
+import { INPUT_CLASS, LABEL_CLASS, NOTE_CLASS, PANEL_CLASS, buttonClass } from './ui/styles';
 
+/** 이 기기에만 저장 (localStorage) */
 const STORAGE_KEY = 'asset-tracker-emotion-journal';
 
-export type EmotionEntry = {
+type Score = 1 | 2 | 3 | 4 | 5;
+type Action = 'buy' | 'sell' | 'hold';
+
+type EmotionEntry = {
   id: string;
-  date: string; // YYYY-MM-DD
-  score: 1 | 2 | 3 | 4 | 5; // 1=공포, 5=탐욕
-  action: 'buy' | 'sell' | 'hold';
+  /** YYYY-MM-DD */
+  date: string;
+  /** 1 = 공포, 5 = 탐욕 */
+  score: Score;
+  action: Action;
   note: string;
 };
 
-const SCORE_META: Record<number, { label: string; emoji: string; color: string }> = {
-  1: { label: '극도의 공포', emoji: '😱', color: 'text-blue-600' },
-  2: { label: '불안/걱정',   emoji: '😟', color: 'text-sky-500' },
-  3: { label: '중립/차분',   emoji: '😐', color: 'text-slate-500' },
-  4: { label: '자신감',      emoji: '😊', color: 'text-amber-500' },
-  5: { label: '탐욕/FOMO',   emoji: '🤑', color: 'text-rose-500' },
+const SCORES: readonly Score[] = [1, 2, 3, 4, 5];
+const SCORE_LABELS: Record<Score, string> = {
+  1: '극도의 공포',
+  2: '불안/걱정',
+  3: '중립/차분',
+  4: '자신감',
+  5: '탐욕/FOMO',
 };
+const ACTIONS: readonly Action[] = ['buy', 'sell', 'hold'];
+const ACTION_LABELS: Record<Action, string> = { buy: '매수', sell: '매도', hold: '관망' };
+
+const CHOICE_CLASS = 'rounded-xl border px-2 py-2 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-blue-500';
+const CHOICE_ON = 'border-blue-400 bg-blue-50 text-blue-800 ring-1 ring-blue-400 dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-200';
+const CHOICE_OFF = 'border-slate-200 bg-white text-slate-700 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200';
+
+/** 감정 점수 동그라미 — 양 극단(1·5)만 amber로 */
+function ScoreDot({ score }: { score: Score }) {
+  const tone = score === 1 || score === 5
+    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+    : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200';
+  return (
+    <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${tone}`} aria-hidden="true">
+      {score}
+    </span>
+  );
+}
+
+function loadEntries(): EmotionEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as EmotionEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 type EmotionJournalSectionProps = {
   totalAsset: number;
   formatNum: (n: number) => string;
 };
 
-function loadEntries(): EmotionEntry[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as EmotionEntry[];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * 매수/매도/관망 시점의 감정을 기록하는 일기.
- * - 시간이 지나면서 감정 패턴과 실제 결과의 상관관계를 보여줌
- * - 극단 감정(공포/탐욕) 시점의 행동이 좋은 결과였는지 학습
- */
+/** 감정 일기 — 매수·매도·관망할 때의 감정을 적어 두고 나중에 결과와 비교 (기본은 접힘) */
 export function EmotionJournalSection({ totalAsset, formatNum }: EmotionJournalSectionProps) {
-  const [entries, setEntries] = useState<EmotionEntry[]>(() => loadEntries());
-  const [expanded, setExpanded] = useState(false);
+  const noteId = useId();
+  const [entries, setEntries] = useState<EmotionEntry[]>(loadEntries);
+  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [draftScore, setDraftScore] = useState<1 | 2 | 3 | 4 | 5>(3);
-  const [draftAction, setDraftAction] = useState<'buy' | 'sell' | 'hold'>('buy');
+  const [draftScore, setDraftScore] = useState<Score>(3);
+  const [draftAction, setDraftAction] = useState<Action>('buy');
   const [draftNote, setDraftNote] = useState('');
 
   const save = (next: EmotionEntry[]) => {
@@ -57,7 +80,7 @@ export function EmotionJournalSection({ totalAsset, formatNum }: EmotionJournalS
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
-      // quota
+      toast.error('이 기기에 저장하지 못했습니다.');
     }
   };
 
@@ -85,200 +108,150 @@ export function EmotionJournalSection({ totalAsset, formatNum }: EmotionJournalS
     toast.info('감정 기록이 삭제되었습니다.');
   };
 
-  // 감정별 통계
   const stats = useMemo(() => {
     if (entries.length === 0) return null;
-    const byScore: Record<number, number> = {};
-    let fearCount = 0;
-    let greedCount = 0;
-    for (const e of entries) {
-      byScore[e.score] = (byScore[e.score] ?? 0) + 1;
-      if (e.score <= 2) fearCount++;
-      if (e.score >= 4) greedCount++;
-    }
-    const avg = entries.reduce((s, e) => s + e.score, 0) / entries.length;
-    return { byScore, avg, fearCount, greedCount, total: entries.length };
+    return {
+      avg: entries.reduce((s, e) => s + e.score, 0) / entries.length,
+      fear: entries.filter((e) => e.score <= 2).length,
+      greed: entries.filter((e) => e.score >= 4).length,
+    };
   }, [entries]);
 
   return (
-    <section className="bg-white dark:bg-slate-800/50 p-5 rounded-3xl border border-slate-200 dark:border-slate-600 shadow">
-      <div
-        className="flex items-center justify-between cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center gap-2">
-          <Heart size={18} className="text-rose-500" />
-          <h3 className="text-sm font-black tracking-tight text-slate-900 dark:text-slate-100">
-            감정 일기
-          </h3>
-          <span className="text-[10px] font-bold text-slate-400">
-            {entries.length}건 기록
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setAdding(!adding); setExpanded(true); }}
-            className="px-2 py-1 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold flex items-center gap-1"
-          >
-            <Plus size={12} /> 기록
-          </button>
-          {expanded ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-        </div>
-      </div>
-
-      {!expanded && stats && (
-        <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
-          평균 감정 점수: <span className="font-black">{stats.avg.toFixed(1)}</span>
-          {stats.avg <= 2 && ' — 공포 상태가 많았습니다 (매수 타이밍일 가능성)'}
-          {stats.avg >= 4 && ' — 탐욕 상태가 많았습니다 (과열 주의)'}
-        </p>
-      )}
-
-      {expanded && (
-        <div className="mt-4 space-y-3">
-          {/* 입력 폼 */}
-          {adding && (
-            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3">
-              <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">지금 감정</p>
-                <div className="flex gap-1">
-                  {([1, 2, 3, 4, 5] as const).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setDraftScore(s)}
-                      className={`flex-1 p-2 rounded-xl border text-center transition-all ${
-                        draftScore === s
-                          ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-400 ring-2 ring-rose-400'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-400'
-                      }`}
-                    >
-                      <div className="text-lg">{SCORE_META[s].emoji}</div>
-                      <div className="text-[9px] font-bold mt-0.5">{SCORE_META[s].label}</div>
-                    </button>
-                  ))}
-                </div>
+    <CollapsibleCard
+      title="감정 일기"
+      summary={stats ? `${entries.length}건 · 평균 ${stats.avg.toFixed(1)}점 (1 공포 ~ 5 탐욕)` : '이 기기에만 저장됩니다'}
+      icon={<Heart size={18} />}
+      open={open}
+      onToggle={() => setOpen(!open)}
+      actions={
+        <button
+          type="button"
+          onClick={() => {
+            setAdding(true);
+            setOpen(true);
+          }}
+          className={buttonClass('secondary', 'sm')}
+        >
+          <Plus size={14} aria-hidden="true" /> 기록
+        </button>
+      }
+    >
+      <div className="space-y-4">
+        {adding && (
+          <div className={`${PANEL_CLASS} space-y-3`}>
+            <fieldset>
+              <legend className={`mb-2 ${LABEL_CLASS}`}>지금 감정</legend>
+              <div className="grid grid-cols-5 gap-1.5">
+                {SCORES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    aria-pressed={draftScore === s}
+                    onClick={() => setDraftScore(s)}
+                    className={`${CHOICE_CLASS} flex flex-col items-center gap-1 ${draftScore === s ? CHOICE_ON : CHOICE_OFF}`}
+                  >
+                    <ScoreDot score={s} />
+                    {/* 좁은 칸에서는 낱말 중간이 아니라 '/' 뒤에서만 줄을 바꾼다 */}
+                    <span className="break-keep text-[11px] leading-tight">{SCORE_LABELS[s].replace('/', '/​')}</span>
+                  </button>
+                ))}
               </div>
-
-              <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">행동</p>
-                <div className="flex gap-1">
-                  {(['buy', 'sell', 'hold'] as const).map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      onClick={() => setDraftAction(a)}
-                      className={`flex-1 px-3 py-2 rounded-xl border text-xs font-bold ${
-                        draftAction === a
-                          ? a === 'buy'
-                            ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-400 ring-2 ring-emerald-400'
-                            : a === 'sell'
-                            ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-400 ring-2 ring-rose-400'
-                            : 'bg-slate-50 dark:bg-slate-700 border-slate-400 ring-2 ring-slate-400'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                      }`}
-                    >
-                      {a === 'buy' ? '매수' : a === 'sell' ? '매도' : '관망'}
-                    </button>
-                  ))}
-                </div>
+            </fieldset>
+            <fieldset>
+              <legend className={`mb-2 ${LABEL_CLASS}`}>행동</legend>
+              <div className="grid grid-cols-3 gap-1.5">
+                {ACTIONS.map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    aria-pressed={draftAction === a}
+                    onClick={() => setDraftAction(a)}
+                    className={`${CHOICE_CLASS} ${draftAction === a ? CHOICE_ON : CHOICE_OFF}`}
+                  >
+                    {ACTION_LABELS[a]}
+                  </button>
+                ))}
               </div>
-
+            </fieldset>
+            <div>
+              <label htmlFor={noteId} className={LABEL_CLASS}>이유</label>
               <textarea
+                id={noteId}
                 value={draftNote}
                 onChange={(e) => setDraftNote(e.target.value)}
-                placeholder="왜 이런 감정이 들었는지 한 줄로... (예: 코스피 -5% 급락에 공포)"
+                placeholder="왜 이런 감정이 들었는지 한 줄로 (예: 코스피 -5% 급락에 공포)"
                 rows={2}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
+                className={`${INPUT_CLASS} mt-1 w-full`}
               />
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={handleAdd} className={buttonClass('primary', 'md', 'flex-1')}>
+                저장
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdding(false);
+                  setDraftNote('');
+                }}
+                className={buttonClass('secondary')}
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        )}
 
-              <div className="flex gap-2">
+        {stats && (
+          <dl className="grid grid-cols-3 gap-2 text-center">
+            <div className={`${PANEL_CLASS} px-2 py-3`}>
+              <dt className="text-xs text-slate-500 dark:text-slate-400">공포 (1–2)</dt>
+              <dd className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{stats.fear}</dd>
+            </div>
+            <div className={`${PANEL_CLASS} px-2 py-3`}>
+              <dt className="text-xs text-slate-500 dark:text-slate-400">평균</dt>
+              <dd className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{stats.avg.toFixed(1)}</dd>
+            </div>
+            <div className={`${PANEL_CLASS} px-2 py-3`}>
+              <dt className="text-xs text-slate-500 dark:text-slate-400">탐욕 (4–5)</dt>
+              <dd className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{stats.greed}</dd>
+            </div>
+          </dl>
+        )}
+
+        <p className={NOTE_CLASS}>
+          현재 자산 <span className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">{formatNum(totalAsset)}원</span>
+          {' '}— 나중에 이 시점의 감정과 결과를 비교해 보세요.
+        </p>
+
+        {entries.length === 0 ? (
+          <p className={`py-2 text-center ${NOTE_CLASS}`}>아직 기록이 없습니다. 매수·매도·관망할 때 감정을 적어 보세요.</p>
+        ) : (
+          <ul className="max-h-96 space-y-2 overflow-y-auto">
+            {entries.map((e) => (
+              <li key={e.id} className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <ScoreDot score={e.score} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{SCORE_LABELS[e.score]}</span>
+                    {' · '}{ACTION_LABELS[e.action]}{' · '}<span className="tabular-nums">{e.date}</span>
+                  </p>
+                  <p className="mt-1 break-words text-sm text-slate-700 dark:text-slate-200">{e.note}</p>
+                </div>
                 <button
                   type="button"
-                  onClick={handleAdd}
-                  className="flex-1 px-3 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold"
+                  onClick={() => handleDelete(e.id)}
+                  aria-label="감정 기록 삭제"
+                  className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-2 focus-visible:outline-blue-500 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
                 >
-                  저장
+                  <Trash2 size={14} aria-hidden="true" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setAdding(false); setDraftNote(''); }}
-                  className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-xs font-bold"
-                >
-                  취소
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* 통계 */}
-          {stats && (
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/20">
-                <p className="text-[10px] font-bold text-blue-600">공포 (1-2)</p>
-                <p className="text-lg font-black text-blue-700">{stats.fearCount}</p>
-              </div>
-              <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800">
-                <p className="text-[10px] font-bold text-slate-500">평균</p>
-                <p className="text-lg font-black text-slate-700 dark:text-slate-200">{stats.avg.toFixed(1)}</p>
-              </div>
-              <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-900/20">
-                <p className="text-[10px] font-bold text-rose-600">탐욕 (4-5)</p>
-                <p className="text-lg font-black text-rose-700">{stats.greedCount}</p>
-              </div>
-            </div>
-          )}
-
-          {/* 현재 자산 */}
-          <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 text-center">
-            <p className="text-[10px] font-bold text-indigo-600 uppercase">현재 자산</p>
-            <p className="text-sm font-black text-indigo-700 dark:text-indigo-300">{formatNum(totalAsset)}원</p>
-            <p className="text-[10px] text-indigo-500">나중에 이 시점 감정과 결과를 비교해보세요</p>
-          </div>
-
-          {/* 기록 목록 */}
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {entries.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-4">
-                아직 기록이 없습니다. 매수/매도/관망 시점에 감정을 기록해보세요.
-              </p>
-            ) : (
-              entries.map((e) => {
-                const meta = SCORE_META[e.score];
-                return (
-                  <div
-                    key={e.id}
-                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex items-start gap-3"
-                  >
-                    <span className="text-2xl flex-shrink-0">{meta.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 text-[10px] font-bold">
-                        <span className={meta.color}>{meta.label}</span>
-                        <span className="text-slate-400">·</span>
-                        <span className="text-slate-500">
-                          {e.action === 'buy' ? '매수' : e.action === 'sell' ? '매도' : '관망'}
-                        </span>
-                        <span className="text-slate-400">·</span>
-                        <span className="text-slate-400">{e.date}</span>
-                      </div>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 break-words">{e.note}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(e.id)}
-                      className="flex-shrink-0 text-slate-400 hover:text-rose-500"
-                      aria-label="삭제"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </section>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </CollapsibleCard>
   );
 }

@@ -81,20 +81,35 @@ async function subtractDeposits(dbHistory: DbHistory, keys: string[]): Promise<v
   }
 }
 
-async function deleteBatches(keys: string[]): Promise<void> {
+/** 매수·매도 기록은 지웠지만 차수 요약(batch_summaries)을 다 지우지 못함 — 장부 숫자는 맞고, 남은 요약은 데이터 점검에 보인다 */
+export class BatchSummaryCleanupError extends Error {
+  readonly original: unknown;
+
+  constructor(original: unknown) {
+    super('차수 요약을 지우지 못했습니다');
+    this.name = 'BatchSummaryCleanupError';
+    this.original = original;
+  }
+}
+
+/**
+ * 차수별 매수·매도 기록과 차수 요약 삭제 — 단계마다 { error }를 확인한다.
+ * 기록 삭제가 실패하면 바로 throw. 요약 삭제가 실패해도 나머지 차수의 기록은 끝까지 지운 뒤
+ * BatchSummaryCleanupError를 throw한다 (입금은 이미 줄였으므로 중간에 멈추면 기록과 입금이 어긋난다).
+ */
+export async function deleteBatches(keys: string[]): Promise<void> {
+  let summaryError: unknown = null;
   for (const key of keys) {
     const { date, batchId } = parseKey(key);
     const query = supabase.from('investment_records').delete().eq('date', date);
     const { error } = batchId === null ? await query.is('batch_id', null) : await query.eq('batch_id', batchId);
     if (error) throw error;
     if (batchId !== null) {
-      try {
-        await supabase.from('batch_summaries').delete().eq('batch_id', batchId);
-      } catch {
-        // 테이블 없을 수 있음
-      }
+      const { error: cleanupError } = await supabase.from('batch_summaries').delete().eq('batch_id', batchId);
+      if (cleanupError && summaryError === null) summaryError = cleanupError;
     }
   }
+  if (summaryError !== null) throw new BatchSummaryCleanupError(summaryError);
 }
 
 /** 날짜·차수별 기록 삭제 (해당 월 입금액도 함께 차감) */
@@ -126,8 +141,13 @@ export function useDeleteByDate({ dbHistory, reload }: { dbHistory: DbHistory; r
       await deleteBatches(selectedKeys);
       toast.success(`선택한 ${selectedKeys.length}개 기록이 삭제되었습니다.`);
       close();
-    } catch {
-      toast.error('삭제하지 못했습니다. 로그인 상태와 인터넷 연결을 확인해 주세요.');
+    } catch (e) {
+      if (e instanceof BatchSummaryCleanupError) {
+        toast.warning('기록은 삭제했지만 차수 요약 일부를 지우지 못했습니다. 기록 탭의 데이터 점검에 남은 요약이 표시됩니다.', 6000);
+        close();
+      } else {
+        toast.error('삭제하지 못했습니다. 로그인 상태와 인터넷 연결을 확인해 주세요.');
+      }
     } finally {
       await reload();
       setIsDeleting(false);

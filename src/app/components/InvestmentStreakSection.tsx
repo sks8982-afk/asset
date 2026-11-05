@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Flame, Calendar, TrendingUp } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import type { MonthlyBudget } from '@/lib/types';
 import { currentYearMonth } from '@/lib/date';
+import { Badge } from './ui/Badge';
+import { Card } from './ui/Card';
+import { PANEL_CLASS } from './ui/styles';
 
 type InvestmentStreakSectionProps = {
   budgets: MonthlyBudget[];
@@ -79,69 +82,49 @@ export function InvestmentStreakSection({ budgets }: InvestmentStreakSectionProp
   }, [monthsWithDeposit]);
 
   const isNewRecord = streak > 0 && streak >= longest;
+  const stats = [
+    { label: '현재 연속', value: streak, note: isNewRecord ? '신기록' : null },
+    { label: '최장 기록', value: longest, note: null },
+    { label: '누적 입금월', value: totalMonths, note: null },
+  ];
 
   return (
-    <section className="bg-white dark:bg-slate-800/50 p-5 rounded-3xl border border-slate-200 dark:border-slate-600 shadow">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Flame size={18} className={streak > 0 ? 'text-orange-500' : 'text-slate-400'} />
-          <h3 className="text-sm font-black tracking-tight text-slate-900 dark:text-slate-100">
-            연속 적립 스트릭
-          </h3>
-        </div>
-        {!thisMonthDone && (
-          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-            ⚠️ 이번 달 미기록
-          </span>
-        )}
-      </div>
+    <Card
+      title="연속 적립"
+      icon={<Flame size={18} className={streak > 0 ? 'text-amber-500' : undefined} />}
+      actions={!thisMonthDone ? <Badge tone="amber">이번 달 미기록</Badge> : undefined}
+    >
+      <dl className="mb-4 grid grid-cols-3 gap-2">
+        {stats.map((s) => (
+          <div key={s.label} className={`${PANEL_CLASS} px-3 py-3`}>
+            <dt className="text-xs text-slate-500 dark:text-slate-400">{s.label}</dt>
+            <dd className="mt-0.5 text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
+              {s.value}
+              <span className="ml-0.5 text-sm font-semibold text-slate-500 dark:text-slate-400">개월</span>
+            </dd>
+            {s.note && <dd className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{s.note}</dd>}
+          </div>
+        ))}
+      </dl>
 
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/30 border border-orange-200 dark:border-orange-800">
-          <p className="text-[10px] font-bold text-orange-600 dark:text-orange-300 uppercase">현재 연속</p>
-          <p className="text-2xl font-black text-orange-700 dark:text-orange-200">
-            {streak}<span className="text-sm ml-1">개월</span>
-          </p>
-          {isNewRecord && streak > 0 && (
-            <p className="text-[10px] font-bold text-rose-500 mt-0.5">🏆 신기록</p>
-          )}
-        </div>
-        <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-          <p className="text-[10px] font-bold text-slate-500 uppercase">최장 기록</p>
-          <p className="text-2xl font-black text-slate-700 dark:text-slate-200">
-            {longest}<span className="text-sm ml-1">개월</span>
-          </p>
-          <TrendingUp size={12} className="text-slate-400 mt-0.5" />
-        </div>
-        <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-          <p className="text-[10px] font-bold text-slate-500 uppercase">누적 입금월</p>
-          <p className="text-2xl font-black text-slate-700 dark:text-slate-200">
-            {totalMonths}<span className="text-sm ml-1">개월</span>
-          </p>
-          <Calendar size={12} className="text-slate-400 mt-0.5" />
-        </div>
-      </div>
-
-      {/* 최근 12개월 히트맵 */}
-      <div>
-        <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">최근 12개월</p>
-        <div className="grid grid-cols-12 gap-1">
-          {last12.map((m) => (
-            <div
-              key={m.ym}
-              className={`h-6 rounded-md flex items-center justify-center text-[8px] font-bold ${
-                m.done
-                  ? 'bg-emerald-400 dark:bg-emerald-600 text-white'
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-400'
-              }`}
-              title={`${m.ym}: ${m.done ? '입금 완료' : '미기록'}`}
-            >
-              {m.ym.slice(5)}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
+      <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">최근 12개월</p>
+      <ol className="grid grid-cols-12 gap-1">
+        {last12.map((m) => (
+          <li
+            key={m.ym}
+            className={`flex h-6 items-center justify-center rounded-md text-[10px] font-bold tabular-nums ${
+              m.done
+                ? 'bg-emerald-500 text-white dark:bg-emerald-600'
+                : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-400'
+            }`}
+            title={`${m.ym}: ${m.done ? '입금 완료' : '미기록'}`}
+          >
+            <span className="sr-only">{m.ym} {m.done ? '입금 완료' : '미기록'}</span>
+            <span aria-hidden="true">{Number(m.ym.slice(5))}</span>
+          </li>
+        ))}
+      </ol>
+    </Card>
   );
 }
 

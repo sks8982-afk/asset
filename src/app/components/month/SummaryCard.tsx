@@ -24,7 +24,7 @@ export function SummaryCard({ totalAsset, totalInvested, budgets, hideReturns }:
   const pnl = totalAsset - totalInvested;
   const pnlPct = totalInvested > 0 ? (totalAsset / totalInvested - 1) * 100 : 0;
   const annualized = annualizedReturn({ budgets, totalAsset, today: todayISO() });
-  const tone = pnl >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400';
+  const tone = pnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';
 
   return (
     <Card title="내 자산" icon={<Wallet size={18} />}>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { APP_TZ, currentYearMonth, monthLabel, todayISO } from './date';
+import { APP_TZ, currentYearMonth, formatMonthsKo, formatYearMonthKo, monthLabel, todayISO } from './date';
 
 describe('APP_TZ', () => {
   it('is Asia/Seoul', () => {
@@ -58,5 +58,28 @@ describe('monthLabel', () => {
 
   it('throws on an invalid date', () => {
     expect(() => monthLabel(new Date('not a date'), 'UTC')).toThrow(RangeError);
+  });
+});
+
+describe('formatMonthsKo', () => {
+  it('writes a month count as years and months', () => {
+    expect(formatMonthsKo(5)).toBe('5개월');
+    expect(formatMonthsKo(12)).toBe('1년');
+    expect(formatMonthsKo(26)).toBe('2년 2개월');
+    expect(formatMonthsKo(135)).toBe('11년 3개월');
+  });
+
+  it('shows 0개월 for zero, negative or fractional-below-one input', () => {
+    expect(formatMonthsKo(0)).toBe('0개월');
+    expect(formatMonthsKo(-3)).toBe('0개월');
+    expect(formatMonthsKo(2.7)).toBe('2개월');
+    expect(formatMonthsKo(Number.NaN)).toBe('0개월');
+  });
+});
+
+describe('formatYearMonthKo', () => {
+  it('writes YYYY-MM or YYYY-MM-DD as YYYY년 M월', () => {
+    expect(formatYearMonthKo('2038-02')).toBe('2038년 2월');
+    expect(formatYearMonthKo('2027-12-05')).toBe('2027년 12월');
   });
 });

@@ -13,6 +13,26 @@ type LedgerMutationsInput = {
   setDbHistory: React.Dispatch<React.SetStateAction<DbHistory>>;
 };
 
+/**
+ * 장부 전체 삭제 — 매수·매도 기록, 월별 입금, 배당을 지운 뒤 잔고 스냅샷·차수 요약을 지운다 (설정은 유지).
+ * 단계마다 { error }를 확인하고 하나라도 실패하면 throw.
+ */
+export async function deleteLedgerRows(): Promise<void> {
+  const ledger = await Promise.all([
+    supabase.from('investment_records').delete().neq('id', NIL_UUID),
+    supabase.from('monthly_budgets').delete().neq('id', NIL_UUID),
+    supabase.from('dividends').delete().neq('id', NIL_UUID),
+  ]);
+  const ledgerError = ledger.find((r) => r.error)?.error;
+  if (ledgerError) throw ledgerError;
+  const derived = await Promise.all([
+    supabase.from('cash_balance_snapshots').delete().neq('date', '1970-01-01'),
+    supabase.from('batch_summaries').delete().neq('batch_id', NIL_UUID),
+  ]);
+  const derivedError = derived.find((r) => r.error)?.error;
+  if (derivedError) throw derivedError;
+}
+
 /** 장부 쓰기 — 배당 추가/삭제, BTC 매수액 보정, DB 초기화 (설정은 useSettings) */
 export function useLedgerMutations({ reload, setDbHistory }: LedgerMutationsInput) {
   const [isResetting, setIsResetting] = useState(false);
@@ -56,21 +76,11 @@ export function useLedgerMutations({ reload, setDbHistory }: LedgerMutationsInpu
   const resetDb = useCallback(async (): Promise<void> => {
     setIsResetting(true);
     try {
-      const results = await Promise.all([
-        supabase.from('investment_records').delete().neq('id', NIL_UUID),
-        supabase.from('monthly_budgets').delete().neq('id', NIL_UUID),
-        supabase.from('dividends').delete().neq('id', NIL_UUID),
-      ]);
-      const failed = results.find((r) => r.error);
-      if (failed?.error) throw failed.error;
-      // 보조 테이블 — 없을 수 있음
-      await Promise.allSettled([
-        supabase.from('cash_balance_snapshots').delete().neq('date', '1970-01-01'),
-        supabase.from('batch_summaries').delete().neq('batch_id', NIL_UUID),
-      ]);
+      await deleteLedgerRows();
       toast.warning('DB가 초기화되었습니다.');
     } catch {
-      toast.error('초기화하지 못했습니다. 로그인 상태와 인터넷 연결을 확인해 주세요.');
+      // 기록 표를 지운 뒤 보조 표에서 실패할 수도 있다 — 다시 실행해도 안전하다
+      toast.error('초기화를 끝내지 못했습니다. 일부만 지워졌을 수 있으니 로그인 상태와 인터넷 연결을 확인한 뒤 다시 실행해 주세요.', 6000);
     } finally {
       await reload();
       setIsResetting(false);

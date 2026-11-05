@@ -81,8 +81,6 @@ export type MyAccountData = {
   cumulativeCmaInterestToToday: number;
   /** 총 실현 손익 */
   totalRealizedPnl: number;
-  /** 총 배당 수익 */
-  totalDividends: number;
 };
 
 /** 차트 데이터 포인트 */
@@ -105,24 +103,6 @@ export type MarketDataPoint = {
 
 /** 실시간 시세 맵 */
 export type LivePrices = Record<string, number>;
-
-/** 리밸런싱 스냅샷 항목 */
-export type RebalancingSnapshot = {
-  date: string;
-  totalAsset: number;
-  items: RebalancingItem[];
-};
-
-/** 리밸런싱 아이템 */
-export type RebalancingItem = {
-  key: string;
-  name: string;
-  targetWeight: number;
-  currentWeight: number;
-  targetAmount: number;
-  currentAmount: number;
-  diff: number;
-};
 
 // ─── 벤치마크 비교 ───
 

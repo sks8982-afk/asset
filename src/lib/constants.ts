@@ -9,31 +9,13 @@ export const STORAGE_KEYS = {
   goalAssetShown: 'asset-tracker-goal-asset-shown',
   /** CMA 이율의 이 기기 값 — DB 설정이 우선 */
   cmaRate: 'asset-tracker-cma-rate',
-  rebalancingAlertQuarter: 'asset-tracker-rebalancing-alert-quarter',
 } as const;
-
-export const COLORS = [
-  '#3b82f6',
-  '#6366f1',
-  '#a855f7',
-  '#f59e0b',
-  '#94a3b8',
-  '#10b981',
-  '#f43f5e',
-  '#0ea5e9',
-  '#84cc16',
-  '#ec4899',
-  '#8b5cf6',
-];
 
 /** 자산 키 → 이름 (자산 정의 + 현금) */
 export const NAMES: Record<string, string> = {
   ...Object.fromEntries(ASSETS.map((a) => [a.key, a.name])),
   cash: '현금(CMA)',
 };
-
-/** 해외 자산 키 목록 (세금 계산용) */
-export const FOREIGN_ASSET_KEYS = keysByTaxClass('foreign_etf', 'crypto');
 
 /** 국내 자산 키 목록 */
 export const DOMESTIC_ASSET_KEYS = keysByTaxClass('domestic_equity', 'gold_etf');

@@ -29,20 +29,27 @@ function parseKey(key: string): { date: string; batchId: string | null } {
 }
 
 /**
- * 배치의 입금액 — batch_summaries가 있으면 그 값, 없으면 batch_deposit, 그것도 없으면 매수 합.
+ * 배치의 입금액 — batch_summaries가 있으면 그 값, 없으면 batch_deposit, 둘 다 없는 예전 기록은 매수 합.
+ * 0원도 그대로 쓴다 (입금 없이 투자 대기 현금으로만 산 차수 — 매수 합을 입금에서 빼면 안 된다).
  * 매도 기록은 입금과 무관하므로 제외한다 (매도 대금을 입금에서 빼지 않도록).
  */
-function batchDepositOf(dbHistory: DbHistory, date: string, batchId: string | null): number {
+export function batchDepositOf(
+  dbHistory: Pick<DbHistory, 'records' | 'batchSummaries'>,
+  date: string,
+  batchId: string | null,
+): number {
   const batchRecords = filterBuyRecords(dbHistory.records).filter((r) => {
     const bid = r.batch_id ?? null;
     return r.date?.substring(0, 10) === date && (batchId === null ? bid == null : bid === batchId);
   });
   if (batchId != null) {
     const summary = dbHistory.batchSummaries.find((s) => s.batch_id === batchId);
-    if (summary && summary.deposit > 0) return summary.deposit;
+    if (summary) return Math.max(0, summary.deposit);
   }
   const first = batchRecords[0];
-  if (first && Number(first.batch_deposit) > 0) return Number(first.batch_deposit);
+  if (first && first.batch_deposit != null && Number.isFinite(Number(first.batch_deposit))) {
+    return Math.max(0, Number(first.batch_deposit));
+  }
   return batchRecords.reduce((sum, r) => sum + getRecordAmount(r), 0);
 }
 

@@ -11,22 +11,11 @@ const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 type LedgerMutationsInput = {
   reload: () => Promise<void>;
   setDbHistory: React.Dispatch<React.SetStateAction<DbHistory>>;
-  setEmergencyFundAmount: (v: number) => void;
 };
 
-/** 장부 쓰기 — 배당 추가/삭제, BTC 매수액 보정, 비상금 설정, DB 초기화 */
-export function useLedgerMutations({ reload, setDbHistory, setEmergencyFundAmount }: LedgerMutationsInput) {
+/** 장부 쓰기 — 배당 추가/삭제, BTC 매수액 보정, DB 초기화 (설정은 useSettings) */
+export function useLedgerMutations({ reload, setDbHistory }: LedgerMutationsInput) {
   const [isResetting, setIsResetting] = useState(false);
-
-  const saveEmergencyFundToDb = useCallback(async (amount: number): Promise<void> => {
-    if (!Number.isFinite(amount) || amount < 0) return;
-    setEmergencyFundAmount(amount);
-    const { error } = await supabase.from('app_settings').upsert(
-      { id: 1, emergency_fund_amount: amount, updated_at: new Date().toISOString() },
-      { onConflict: 'id' },
-    );
-    if (error) toast.error('비상금 설정을 저장하지 못했습니다. 이 화면에만 적용됩니다.');
-  }, [setEmergencyFundAmount]);
 
   const saveBtcAmountOverride = useCallback(async (recordId: string, amountOverride: number | null): Promise<void> => {
     const { error } = await supabase
@@ -89,7 +78,6 @@ export function useLedgerMutations({ reload, setDbHistory, setEmergencyFundAmoun
   }, [reload]);
 
   return {
-    saveEmergencyFundToDb,
     saveBtcAmountOverride,
     addDividend,
     deleteDividend,

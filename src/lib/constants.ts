@@ -1,14 +1,13 @@
-import type { AssetMarketGroup, RatioPreset } from './types';
 import { ASSETS, keysByTaxClass } from './assets';
 
 export const STORAGE_KEYS = {
   dark: 'asset-tracker-dark',
-  ratios: 'asset-tracker-ratios',
+  /** 월 적립 금액의 이 기기 값 — DB 설정(app_settings)이 우선 (lib/settings) */
   budget: 'asset-tracker-budget',
-  goalRoi: 'asset-tracker-goal-roi',
+  /** 목표 자산의 이 기기 값 — DB 설정이 우선 */
   goalAsset: 'asset-tracker-goal-asset',
-  goalRoiShown: 'asset-tracker-goal-roi-shown',
   goalAssetShown: 'asset-tracker-goal-asset-shown',
+  /** CMA 이율의 이 기기 값 — DB 설정이 우선 */
   cmaRate: 'asset-tracker-cma-rate',
   rebalancingAlertQuarter: 'asset-tracker-rebalancing-alert-quarter',
 } as const;
@@ -33,27 +32,6 @@ export const NAMES: Record<string, string> = {
   cash: '현금(CMA)',
 };
 
-export const DEFAULT_RATIOS: Record<string, number> = {
-  tech10: 3,
-  nasdaq: 3,
-  nasdaq_kodex: 0,
-  snp: 3,
-  gold: 1,
-  kodex200: 1,
-  kodex_kosdaq150: 1,
-  semiconductor_top10: 1,
-  samsung: 1,
-  cash: 1,
-  btc: 1,
-};
-
-/** 국내(국장) vs 해외(미장) 구분 */
-export const ASSET_MARKET_GROUPS: AssetMarketGroup[] = [
-  { label: '국내(국장)', keys: keysByTaxClass('domestic_equity', 'gold_etf') },
-  { label: '해외(미장)', keys: keysByTaxClass('foreign_etf') },
-  { label: '기타', keys: ['cash', ...keysByTaxClass('crypto')] },
-];
-
 /** 해외 자산 키 목록 (세금 계산용) */
 export const FOREIGN_ASSET_KEYS = keysByTaxClass('foreign_etf', 'crypto');
 
@@ -74,22 +52,6 @@ export const NON_ISA_KEYS = keysByTaxClass('crypto');
  * ISA에서는 이 자산들의 손익만 통산한다. 국내주식형 ETF·국내주식 매매차익은 비과세라 제외.
  */
 export const TAXABLE_GAIN_KEYS = keysByTaxClass('foreign_etf', 'gold_etf');
-
-/** 비중 프리셋 */
-export const RATIO_PRESETS: RatioPreset[] = [
-  {
-    name: '공격형',
-    ratios: { tech10: 3, nasdaq: 3, nasdaq_kodex: 0, snp: 3, gold: 1, kodex200: 1, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 0.5, btc: 1 },
-  },
-  {
-    name: '균형',
-    ratios: { tech10: 2, nasdaq: 2, nasdaq_kodex: 0, snp: 2, gold: 2, kodex200: 1, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 2, btc: 1 },
-  },
-  {
-    name: '보수형',
-    ratios: { tech10: 2, nasdaq: 2, nasdaq_kodex: 0, snp: 2, gold: 2, kodex200: 1, kodex_kosdaq150: 1, semiconductor_top10: 1, samsung: 1, cash: 3, btc: 1 },
-  },
-];
 
 /** 해외주식 양도소득세 공제한도 (ISA 밖 해외직투용 — BTC 등) */
 export const FOREIGN_TAX_EXEMPTION = 2500000;

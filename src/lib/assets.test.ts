@@ -4,8 +4,7 @@ import {
   getAsset, getBuyVehicle, getGroupKeys, isCoreAsset, keysByTaxClass, type CoreGroup,
 } from './assets';
 import {
-  NAMES, DEFAULT_RATIOS, RATIO_PRESETS, ASSET_MARKET_GROUPS, FOREIGN_ASSET_KEYS,
-  DOMESTIC_ASSET_KEYS, ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, TAXABLE_GAIN_KEYS,
+  NAMES, FOREIGN_ASSET_KEYS, DOMESTIC_ASSET_KEYS, ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, TAXABLE_GAIN_KEYS,
 } from './constants';
 
 describe('asset registry', () => {
@@ -82,20 +81,6 @@ describe('legacy constants derived from the registry', () => {
     expect([...uiKeys].sort()).toEqual([...ASSET_KEYS, 'cash'].sort());
     expect(NAMES.snp).toBe('TIGER 미국S&P500');
     expect(NAMES.cash).toBe('현금(CMA)');
-  });
-
-  it('gives every UI key a numeric ratio so the legacy buy plan never sees NaN', () => {
-    for (const k of uiKeys) {
-      expect(typeof DEFAULT_RATIOS[k]).toBe('number');
-      for (const preset of RATIO_PRESETS) expect(typeof preset.ratios[k]).toBe('number');
-    }
-    expect(DEFAULT_RATIOS.nasdaq_kodex).toBe(0);
-  });
-
-  it('puts every UI key in exactly one market group', () => {
-    const grouped = ASSET_MARKET_GROUPS.flatMap((g) => g.keys);
-    expect([...grouped].sort()).toEqual([...uiKeys].sort());
-    expect(ASSET_MARKET_GROUPS.find((g) => g.label === '해외(미장)')?.keys).toContain('nasdaq_kodex');
   });
 
   it('derives tax key lists', () => {

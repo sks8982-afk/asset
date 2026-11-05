@@ -26,8 +26,6 @@ type UseAppDataResult = {
   marketMeta: MarketMeta;
   dbHistory: DbHistory;
   setDbHistory: React.Dispatch<React.SetStateAction<DbHistory>>;
-  emergencyFundAmount: number;
-  setEmergencyFundAmount: (v: number) => void;
   reload: () => Promise<void>;
 };
 
@@ -49,7 +47,6 @@ export function useAppData(): UseAppDataResult {
   const [dbHistory, setDbHistory] = useState<DbHistory>({
     budgets: [], records: [], batchSummaries: [], snapshots: [], dividends: [],
   });
-  const [emergencyFundAmount, setEmergencyFundAmount] = useState<number>(300000);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -135,20 +132,6 @@ export function useAppData(): UseAppDataResult {
         // table may not exist
       }
 
-      let emergencyFund = 300000;
-      try {
-        const { data: settingsRow } = await supabase
-          .from('app_settings')
-          .select('emergency_fund_amount')
-          .eq('id', 1)
-          .maybeSingle();
-        if (settingsRow?.emergency_fund_amount != null)
-          emergencyFund = Number(settingsRow.emergency_fund_amount) || 300000;
-      } catch {
-        // table may not exist
-      }
-      setEmergencyFundAmount(emergencyFund);
-
       let dividends: DividendRecord[] = [];
       try {
         const { data: divData } = await supabase
@@ -198,8 +181,6 @@ export function useAppData(): UseAppDataResult {
     marketMeta,
     dbHistory,
     setDbHistory,
-    emergencyFundAmount,
-    setEmergencyFundAmount,
     reload,
   };
 }

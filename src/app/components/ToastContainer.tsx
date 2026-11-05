@@ -29,7 +29,7 @@ export function ToastContainer() {
           <div
             key={t.id}
             role="status"
-            className={`pointer-events-auto min-w-[260px] max-w-[380px] px-4 py-3 rounded-2xl border shadow-lg flex items-start gap-3 text-sm font-semibold backdrop-blur-md ${STYLES[t.kind]}`}
+            className={`pointer-events-auto min-w-[260px] max-w-[min(380px,calc(100vw-2rem))] px-4 py-3 rounded-2xl border shadow-lg flex items-start gap-3 text-sm font-semibold backdrop-blur-md ${STYLES[t.kind]}`}
           >
             <Icon size={18} className="flex-shrink-0 mt-0.5" />
             <p className="flex-1 whitespace-pre-wrap break-words">{t.message}</p>

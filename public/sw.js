@@ -1,7 +1,7 @@
 // 경식이의 자산 추적기 — Service Worker
 // 전략: 정적 자산은 캐시 우선, 동적/API는 네트워크 우선 + 오프라인 폴백
 
-const CACHE_NAME = 'asset-tracker-v1';
+const CACHE_NAME = 'asset-tracker-v2';
 const STATIC_ASSETS = ['/', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

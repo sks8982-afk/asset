@@ -1,189 +1,108 @@
 import React from 'react';
-import {
-  Download,
-  Eye,
-  EyeOff,
-  Moon,
-  RefreshCcw,
-  Settings,
-  Sun,
-  Trash2,
-  TrendingDown,
-} from 'lucide-react';
+import { Eye, EyeOff, Moon, RefreshCcw, Settings, Sun } from 'lucide-react';
+import { APP_TZ } from '@/lib/date';
 
 export type HeaderSectionProps = {
   darkMode: boolean;
   onToggleDarkMode: () => void;
-  onExportCSV: () => void;
   onOpenSettings: () => void;
   onRefreshPrices: () => void;
   isRefreshingPrice: boolean;
-  onOpenDeleteByDate: () => void;
-  onOpenSellRecord?: () => void;
-  totalInvested: number;
-  totalAsset: number;
-  totalRoi: number;
-  hideReturns?: boolean;
-  onToggleHideReturns?: () => void;
+  hideReturns: boolean;
+  onToggleHideReturns: () => void;
   /** 시세 조회 시각 (ISO) */
-  priceFetchedAt?: string | null;
+  priceFetchedAt: string | null;
   /** 실시간 조회 실패로 폴백된 자산 이름들 */
-  priceStaleLabels?: string[];
+  priceStaleLabels: string[];
   /** 시세 API 호출 자체가 실패했는지 */
-  priceError?: boolean;
+  priceError: boolean;
 };
 
+type IconButtonProps = {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  /** 켜고 끄는 버튼이면 현재 상태 */
+  pressed?: boolean;
+  children: React.ReactNode;
+};
+
+function IconButton({ label, onClick, disabled, pressed, children }: IconButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+    >
+      {children}
+    </button>
+  );
+}
+
+function formatFetchedTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: APP_TZ,
+  });
+}
+
+/** 제목 + 시세 기준 시각 + 아이콘 버튼 (새로고침·수익률 숨기기·다크모드·설정) */
 export function HeaderSection({
   darkMode,
   onToggleDarkMode,
-  onExportCSV,
   onOpenSettings,
   onRefreshPrices,
   isRefreshingPrice,
-  onOpenDeleteByDate,
-  onOpenSellRecord,
-  totalInvested,
-  totalAsset,
-  totalRoi,
-  hideReturns = false,
+  hideReturns,
   onToggleHideReturns,
-  priceFetchedAt = null,
-  priceStaleLabels = [],
-  priceError = false,
+  priceFetchedAt,
+  priceStaleLabels,
+  priceError,
 }: HeaderSectionProps) {
-  const formatNum = (n: number) => Math.floor(n).toLocaleString();
-  const mask = (s: string) => (hideReturns ? '***' : s);
-  const fetchedTime = priceFetchedAt
-    ? new Date(priceFetchedAt).toLocaleTimeString('ko-KR', {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : null;
+  const fetchedTime = formatFetchedTime(priceFetchedAt);
 
   return (
-    <>
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="flex h-2 w-2 rounded-full bg-blue-500"></span>
-          <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest italic">
-            Real-Time DB Ledger
-          </span>
-        </div>
-        <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 leading-none tracking-tighter">
+    <header className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
           실전 <span className="text-blue-600 dark:text-blue-400">투자 장부</span>
         </h1>
         {priceError ? (
-          <p className="mt-1 text-[10px] font-bold text-rose-500">
-            ⚠️ 시세 갱신 실패 — 이전 데이터를 표시 중입니다
+          <p className="mt-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+            시세 갱신 실패 — 이전 데이터를 표시 중입니다
           </p>
         ) : fetchedTime ? (
-          <p className="mt-1 text-[10px] font-bold text-slate-400">
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             시세 {fetchedTime} 기준
             {priceStaleLabels.length > 0 && (
-              <span className="text-amber-600 dark:text-amber-400">
-                {' '}
-                · ⚠️ 지연: {priceStaleLabels.join(', ')}
-              </span>
+              <span className="text-amber-700 dark:text-amber-400"> · 지연: {priceStaleLabels.join(', ')}</span>
             )}
           </p>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full justify-end">
-        <button
-          onClick={onToggleDarkMode}
-          className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-          title={darkMode ? '라이트 모드' : '다크 모드'}
-        >
-          {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
-        {onToggleHideReturns && (
-          <button
-            onClick={onToggleHideReturns}
-            className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-            title={hideReturns ? '수익률 보이기' : '수익률 숨기기'}
-          >
-            {hideReturns ? <EyeOff size={20} /> : <Eye size={20} />}
-          </button>
-        )}
-        <button
-          onClick={onExportCSV}
-          className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
-          title="CSV 내보내기"
-        >
-          <Download size={18} />
-          <span className="text-xs font-bold hidden sm:inline">내보내기</span>
-        </button>
-        <button
-          onClick={onOpenSettings}
-          className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-          title="설정"
-        >
-          <Settings size={20} />
-        </button>
-        <button
-          onClick={onRefreshPrices}
-          disabled={isRefreshingPrice}
-          className="p-3 rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-2 disabled:opacity-60"
-          title="시세 새로고침"
-        >
-          <RefreshCcw
-            size={18}
-            className={isRefreshingPrice ? 'animate-spin' : ''}
-          />
-          <span className="text-xs font-bold hidden sm:inline">
-            시세 새로고침
-          </span>
-        </button>
-        {onOpenSellRecord && (
-          <button
-            onClick={onOpenSellRecord}
-            className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 hover:border-red-200 transition-all flex flex-col items-center justify-center gap-1"
-            title="매도 기록"
-          >
-            <TrendingDown size={18} />
-            <span className="text-[9px] font-black uppercase">매도</span>
-          </button>
-        )}
-        <button
-          onClick={onOpenDeleteByDate}
-          className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 hover:border-amber-200 transition-all flex flex-col items-center justify-center gap-1"
-          title="날짜별 기록 삭제"
-        >
-          <Trash2 size={18} />
-          <span className="text-[9px] font-black uppercase">날짜별 삭제</span>
-        </button>
-        <div className="bg-slate-900 dark:bg-slate-800 px-6 py-4 rounded-3xl text-white shadow-2xl flex flex-col sm:flex-row gap-4 sm:gap-6 border-b-4 border-blue-600 ml-auto">
-          <div className="text-right border-r border-white/10 pr-6">
-            <p className="text-[10px] font-bold opacity-50 uppercase mb-1">
-              투자 총액
-            </p>
-            <p className="text-2xl font-black italic">
-              {mask(formatNum(totalInvested))}원
-            </p>
-          </div>
-          <div className="text-right border-r border-white/10 px-6">
-            <p className="text-[10px] font-bold opacity-50 uppercase mb-1">
-              순자산 총액
-            </p>
-            <p className="text-2xl font-black italic">
-              {mask(formatNum(totalAsset))}원
-            </p>
-          </div>
-          <div className="text-right pl-4">
-            <p className="text-[10px] font-bold opacity-50 uppercase mb-1">
-              총 수익률
-            </p>
-            <p
-              className={`text-2xl font-black ${
-                totalRoi >= 0 ? 'text-blue-400' : 'text-rose-400'
-              }`}
-            >
-              {hideReturns ? '***' : `${totalRoi > 0 ? '+' : ''}${totalRoi.toFixed(1)}%`}
-            </p>
-          </div>
-        </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <IconButton label="시세 새로고침" onClick={onRefreshPrices} disabled={isRefreshingPrice}>
+          <RefreshCcw size={18} className={isRefreshingPrice ? 'animate-spin' : ''} aria-hidden="true" />
+        </IconButton>
+        <IconButton label="수익률 숨기기" onClick={onToggleHideReturns} pressed={hideReturns}>
+          {hideReturns ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+        </IconButton>
+        <IconButton label="다크 모드" onClick={onToggleDarkMode} pressed={darkMode}>
+          {darkMode ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
+        </IconButton>
+        <IconButton label="설정" onClick={onOpenSettings}>
+          <Settings size={18} aria-hidden="true" />
+        </IconButton>
       </div>
-    </>
+    </header>
   );
 }
-

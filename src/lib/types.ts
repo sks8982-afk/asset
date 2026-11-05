@@ -58,18 +58,6 @@ export type AssetPortfolio = {
   realizedPnl: number;
 };
 
-/** 마켓 그룹 (국내/해외/기타) */
-export type AssetMarketGroup = {
-  label: string;
-  keys: string[];
-};
-
-/** 비중 프리셋 */
-export type RatioPreset = {
-  name: string;
-  ratios: Record<string, number>;
-};
-
 /** DB에서 로드하는 전체 히스토리 */
 export type DbHistory = {
   budgets: MonthlyBudget[];
@@ -123,22 +111,6 @@ export type RebalancingSnapshot = {
   date: string;
   totalAsset: number;
   items: RebalancingItem[];
-};
-
-/** 매수 가이드 아이템 */
-export type BuyGuideItem = {
-  qty: number;
-  baseQty: number;
-  price: number;
-  spent: number;
-  drop: number;
-};
-
-/** 매수 플랜 결과 */
-export type BuyPlanResult = {
-  guide: Record<string, BuyGuideItem>;
-  thisMonthResidue: number;
-  totalExpectedSpend: number;
 };
 
 /** 리밸런싱 아이템 */

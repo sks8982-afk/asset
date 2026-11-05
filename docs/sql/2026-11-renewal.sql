@@ -11,10 +11,10 @@
 --       이 SQL을 먼저 실행하면 로그인 기능이 없는 예전 앱은 장부를 읽지도 쓰지도 못합니다.
 --   (2) Supabase Dashboard → Authentication → Users → Add user
 --       본인 이메일/비밀번호로 사용자 1명 생성 ("Auto Confirm User" 체크).
---   (3) Authentication 설정에서 신규 가입(Allow new users to sign up) 끄기
---       익명 로그인(Allow anonymous sign-ins)도 꺼져 있는지 확인.
---       아래 정책은 "로그인한 사용자라면 누구나" 전체 접근을 허용합니다(1인용 앱 전제).
---       가입이나 익명 로그인이 열려 있으면 누구나 계정을 만들어 장부를 볼 수 있습니다.
+--   (3) Authentication → Sign In / Providers → User Signups 에서
+--       "Allow new users to sign up" 끄기, "Allow anonymous sign-ins"도 꺼져 있는지 확인.
+--       아래 정책은 장부 주인 계정(owner_email) 한 명만 접근을 허용합니다.
+--       가입이 실수로 다시 열려도 다른 계정은 장부를 볼 수 없습니다.
 --   (4) 이 SQL 실행
 --       DROP POLICY 때문에 "파괴적 작업" 확인 창이 뜨면 내용을 확인하고 실행하세요.
 --       맨 아래 확인 쿼리 결과 표로 잠금 상태를 볼 수 있습니다.
@@ -38,25 +38,36 @@ alter table public.app_settings
   add column if not exists core_weights   jsonb,    -- 코어 비율 (S&P500 / 나스닥100)
   add column if not exists cma_rate       numeric,  -- CMA 연 이율
   add column if not exists goal_asset     numeric,  -- 목표 자산 (원)
-  add column if not exists goal_roi       numeric,  -- 목표 수익률
-  add column if not exists ips_rules      jsonb,    -- 투자 원칙 점검 설정
+  add column if not exists ips_rules      jsonb,    -- 투자 원칙 (화면에 보여줄 규칙 문장)
   add column if not exists isa_open_date  date;     -- ISA 가입일
 
 -- ---------------------------------------------------------------------
--- B. 장부 테이블 잠금 — 로그인한 사용자(authenticated)만 접근, 공개 키(anon)로는 접근 불가
+-- B. 장부 테이블 잠금 — 장부 주인 계정으로 로그인했을 때만 접근, 공개 키(anon)로는 접근 불가
+--    먼저 owner_email로 Authentication 사용자를 찾습니다. 없으면 오류로 멈추고 아무것도 바뀌지 않습니다.
 --    테이블마다:
 --      1) RLS 켜기
 --      2) 기존 정책 전부 삭제
 --         정책은 OR로 합쳐지므로 예전 anon 허용 정책이 하나라도 남으면 계속 열려 있음
---      3) authenticated 전체 허용 정책 1개 생성
+--      3) 주인 계정 전체 허용 정책 1개 생성 (auth.uid() = 주인 계정 ID)
 --      4) anon 권한 전부 회수, authenticated는 앱에 필요한 권한 보장
 --    없는 테이블은 건너뜁니다.
 -- ---------------------------------------------------------------------
 do $$
 declare
+  -- 앱 로그인 계정 (Authentication → Users 에 만든 이메일)
+  owner_email constant text := 'sks8982@gmail.com';
+  owner_id uuid;
   tbl text;
   pol record;
 begin
+  select id into owner_id
+  from auth.users
+  where lower(email) = lower(owner_email);
+
+  if owner_id is null then
+    raise exception '로그인 계정(%)을 찾지 못했습니다. Authentication → Users에서 먼저 만들어 주세요.', owner_email;
+  end if;
+
   foreach tbl in array array[
     'monthly_budgets',
     'investment_records',
@@ -87,11 +98,15 @@ begin
       execute format('drop policy %I on public.%I', pol.policyname, tbl);
     end loop;
 
-    -- 3) 로그인 사용자 전체 허용 정책 1개
+    -- 3) 주인 계정 전체 허용 정책 1개
     execute format(
-      'create policy %I on public.%I for all to authenticated using (true) with check (true)',
-      'authenticated_full_access',
-      tbl
+      'create policy %I on public.%I for all to authenticated '
+        || 'using ((select auth.uid()) = %L::uuid) '
+        || 'with check ((select auth.uid()) = %L::uuid)',
+      'owner_full_access',
+      tbl,
+      owner_id,
+      owner_id
     );
 
     -- 4) 권한 정리
@@ -184,7 +199,7 @@ order by kind, name;
 --       select 1 from pg_catalog.pg_tables
 --       where schemaname = 'public' and tablename = tbl
 --     ) then
---       execute format('drop policy if exists %I on public.%I', 'authenticated_full_access', tbl);
+--       execute format('drop policy if exists %I on public.%I', 'owner_full_access', tbl);
 --       execute format('alter table public.%I disable row level security', tbl);
 --       execute format('grant all on table public.%I to anon', tbl);
 --     end if;

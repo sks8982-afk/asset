@@ -38,6 +38,26 @@ export function useAuth(): AuthContextValue {
   return value;
 }
 
+/** 마지막으로 로그인한 이메일 — 다음 로그인 때 미리 채워 둔다 (비밀번호는 저장하지 않음) */
+const LAST_EMAIL_KEY = 'asset-tracker-last-email';
+
+function readLastEmail(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return localStorage.getItem(LAST_EMAIL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveLastEmail(email: string): void {
+  try {
+    localStorage.setItem(LAST_EMAIL_KEY, email);
+  } catch {
+    // 저장소를 쓸 수 없는 환경(사생활 보호 모드 등)에서는 기억하지 않는다
+  }
+}
+
 const SIGN_OUT_ERROR =
   '로그아웃하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.';
 
@@ -151,7 +171,7 @@ type LoginScreenProps = {
 function LoginScreen({ onDevBypass }: LoginScreenProps) {
   const emailId = useId();
   const passwordId = useId();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(readLastEmail);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +195,7 @@ function LoginScreen({ onDevBypass }: LoginScreenProps) {
       });
       // 성공하면 onAuthStateChange(SIGNED_IN)가 AuthGate를 앱 화면으로 바꾼다.
       if (signInError) setError(toLoginErrorMessage(signInError));
+      else saveLastEmail(trimmedEmail);
     } catch {
       setError(LOGIN_ERRORS.unknown);
     } finally {
@@ -246,6 +267,9 @@ function LoginScreen({ onDevBypass }: LoginScreenProps) {
           >
             {submitting ? '로그인 중…' : '로그인'}
           </button>
+          <p className="text-center text-xs opacity-60">
+            한 번 로그인하면 이 기기에서는 로그아웃할 때까지 유지됩니다.
+          </p>
         </form>
 
         {process.env.NODE_ENV === 'development' && (

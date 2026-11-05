@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Wallet, ArrowDownCircle } from 'lucide-react';
+import { Wallet } from 'lucide-react';
+import { currentYearMonth } from '@/lib/date';
 
 type BudgetItem = { month_date: string; amount?: number };
 type MonthlyOverviewSectionProps = {
@@ -14,8 +15,6 @@ type MonthlyOverviewSectionProps = {
   cumulativeCmaInterestToToday: number;
   cmaRate: number;
   emergencyFundAmount: number;
-  isPanicBuyMode: boolean;
-  setIsPanicBuyMode: (value: boolean | ((prev: boolean) => boolean)) => void;
   formatNum: (n: number) => string;
 };
 
@@ -29,13 +28,11 @@ export function MonthlyOverviewSection({
   cumulativeCmaInterestToToday,
   cmaRate,
   emergencyFundAmount,
-  isPanicBuyMode,
-  setIsPanicBuyMode,
   formatNum,
 }: MonthlyOverviewSectionProps) {
-  const currentYearMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = currentYearMonth();
   const hasCurrentMonthBudget = dbHistoryBudgets.some((b) =>
-    b.month_date.startsWith(currentYearMonth)
+    b.month_date.startsWith(thisMonth)
   );
   const effectiveBalance = currentCashBalance + cumulativeCmaInterestToToday;
   const investableAmount =
@@ -109,28 +106,6 @@ export function MonthlyOverviewSection({
           )}
         </div>
       </div>
-
-      <button
-        onClick={() => setIsPanicBuyMode((prev) => !prev)}
-        className={`flex-1 p-6 rounded-[2.5rem] border-2 transition-all flex items-center justify-center gap-4 group ${
-          isPanicBuyMode
-            ? 'bg-rose-600 border-rose-600 text-white shadow-2xl scale-105'
-            : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-600 text-slate-400 hover:border-rose-300'
-        }`}
-      >
-        <ArrowDownCircle
-          className={isPanicBuyMode ? 'animate-bounce' : ''}
-          size={32}
-        />
-        <div className="text-left">
-          <p className="text-xs font-black uppercase tracking-tighter opacity-70 leading-none mb-1">
-            Smart Panic Buying
-          </p>
-          <p className="text-xl font-black">
-            {isPanicBuyMode ? '비상금 99% 투입 중' : '추매 기회 대기'}
-          </p>
-        </div>
-      </button>
     </div>
   );
 }

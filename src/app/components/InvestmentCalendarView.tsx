@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { todayISO } from '@/lib/date';
 
 type CalendarRecord = {
   id?: string;
@@ -192,7 +193,7 @@ export function InvestmentCalendarView({
 
               const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               const summary = dayMap[dateStr];
-              const isToday = dateStr === today.toISOString().slice(0, 10);
+              const isToday = dateStr === todayISO();
               const isSelected = dateStr === selectedDate;
               const isWeekend = di === 0 || di === 6;
 

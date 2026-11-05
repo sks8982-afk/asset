@@ -62,9 +62,14 @@ export function BenchmarkComparisonSection({
       >
         <div className="flex items-center gap-3">
           <BarChart3 className="text-indigo-600 dark:text-indigo-400" size={24} />
-          <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100">
-            벤치마크 대비 수익률
-          </h2>
+          <div>
+            <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100">
+              S&amp;P500만 샀다면?
+            </h2>
+            <p className="text-[11px] font-bold text-slate-400 mt-0.5">
+              같은 날 같은 금액을 S&amp;P500 또는 70:30에 넣었을 때
+            </p>
+          </div>
           {myResult && (
             <span className={`text-sm font-black px-3 py-1 rounded-full ${
               myRank === 1
@@ -91,7 +96,7 @@ export function BenchmarkComparisonSection({
       </div>
 
       {/* 성과 요약 카드 (항상 표시) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">
         {results.map((r, idx) => {
           const isMe = r.key === 'myPortfolio';
           const isTop = idx === 0;
@@ -138,7 +143,7 @@ export function BenchmarkComparisonSection({
         <div className="mt-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center gap-2">
           <TrendingDown size={14} className="text-slate-400" />
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            {bestResult.label}만 샀으면{' '}
+            {bestResult.label}이었다면{' '}
             <span className="font-black text-rose-500">
               {formatNum(Math.abs(bestResult.finalValue - myResult.finalValue))}원
             </span>
@@ -244,7 +249,7 @@ export function BenchmarkComparisonSection({
             <p className="font-black text-slate-600 dark:text-slate-400">📊 벤치마크 비교 방식</p>
             <p>• 실제 입금한 날짜와 금액 그대로, 해당 월에 벤치마크만 매수했을 경우를 시뮬레이션</p>
             <p>• 매수 수수료, 세금, 환전 비용 미반영 (실제보다 벤치마크가 유리하게 계산됨)</p>
-            <p>• S&P/나스닥/KODEX는 국내 상장 ETF 가격 기준 (원화, 환헷지 효과 포함)</p>
+            <p>• S&P500·나스닥100은 국내 상장 ETF 시세 사용 (환노출 ETF의 원화 가격 기준)</p>
             <p>• 카드를 클릭하면 해당 라인을 숨기거나 표시할 수 있습니다</p>
           </div>
         </div>

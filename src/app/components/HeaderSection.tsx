@@ -18,7 +18,6 @@ export type HeaderSectionProps = {
   onOpenSettings: () => void;
   onRefreshPrices: () => void;
   isRefreshingPrice: boolean;
-  onOpenResetDb: () => void;
   onOpenDeleteByDate: () => void;
   onOpenSellRecord?: () => void;
   totalInvested: number;
@@ -41,7 +40,6 @@ export function HeaderSection({
   onOpenSettings,
   onRefreshPrices,
   isRefreshingPrice,
-  onOpenResetDb,
   onOpenDeleteByDate,
   onOpenSellRecord,
   totalInvested,
@@ -66,7 +64,7 @@ export function HeaderSection({
     <>
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
+          <span className="flex h-2 w-2 rounded-full bg-blue-500"></span>
           <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest italic">
             Real-Time DB Ledger
           </span>
@@ -153,14 +151,6 @@ export function HeaderSection({
         >
           <Trash2 size={18} />
           <span className="text-[9px] font-black uppercase">날짜별 삭제</span>
-        </button>
-        <button
-          onClick={onOpenResetDb}
-          className="bg-white dark:bg-slate-800 text-slate-400 p-4 rounded-3xl border border-slate-200 dark:border-slate-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-500 hover:border-rose-200 transition-all flex flex-col items-center justify-center gap-1"
-          title="DB 전체 초기화"
-        >
-          <Trash2 size={18} />
-          <span className="text-[9px] font-black uppercase">DB 초기화</span>
         </button>
         <div className="bg-slate-900 dark:bg-slate-800 px-6 py-4 rounded-3xl text-white shadow-2xl flex flex-col sm:flex-row gap-4 sm:gap-6 border-b-4 border-blue-600 ml-auto">
           <div className="text-right border-r border-white/10 pr-6">

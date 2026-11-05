@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import { Flame, Calendar, TrendingUp } from 'lucide-react';
 import type { MonthlyBudget } from '@/lib/types';
+import { currentYearMonth } from '@/lib/date';
 
 type InvestmentStreakSectionProps = {
   budgets: MonthlyBudget[];
@@ -26,8 +27,8 @@ export function InvestmentStreakSection({ budgets }: InvestmentStreakSectionProp
       }
     }
 
-    // 이번 달 기록 여부
-    const currentYM = new Date().toISOString().slice(0, 7);
+    // 이번 달 기록 여부 (KST)
+    const currentYM = currentYearMonth();
     const thisMonthDone = monthSet.has(currentYM);
 
     // 가장 오래된 입금 월 찾기
@@ -68,16 +69,13 @@ export function InvestmentStreakSection({ budgets }: InvestmentStreakSectionProp
     };
   }, [budgets]);
 
-  // 최근 12개월 히트맵
+  // 최근 12개월 히트맵 (KST 기준 이번 달까지)
   const last12 = useMemo(() => {
-    const out: { ym: string; done: boolean }[] = [];
-    const now = new Date();
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      out.push({ ym, done: monthsWithDeposit.has(ym) });
-    }
-    return out;
+    const currentYM = currentYearMonth();
+    return Array.from({ length: 12 }, (_, i) => {
+      const ym = shiftMonth(currentYM, i - 11);
+      return { ym, done: monthsWithDeposit.has(ym) };
+    });
   }, [monthsWithDeposit]);
 
   const isNewRecord = streak > 0 && streak >= longest;
@@ -147,14 +145,17 @@ export function InvestmentStreakSection({ budgets }: InvestmentStreakSectionProp
   );
 }
 
-function prevMonth(ym: string): string {
+/** 'YYYY-MM'을 delta개월 이동 (시간대와 무관한 정수 계산) */
+function shiftMonth(ym: string, delta: number): string {
   const [y, m] = ym.split('-').map(Number);
-  const d = new Date(y, m - 2, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const total = y * 12 + (m - 1) + delta;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
+}
+
+function prevMonth(ym: string): string {
+  return shiftMonth(ym, -1);
 }
 
 function nextMonth(ym: string): string {
-  const [y, m] = ym.split('-').map(Number);
-  const d = new Date(y, m, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return shiftMonth(ym, 1);
 }

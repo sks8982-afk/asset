@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { Percent, TrendingUp, TrendingDown, Info } from 'lucide-react';
 import type { MonthlyBudget } from '@/lib/types';
 import { calculateXirr } from '@/lib/utils';
+import { todayISO } from '@/lib/date';
 
 type RealReturnSectionProps = {
   totalAsset: number;
@@ -15,8 +16,21 @@ type RealReturnSectionProps = {
   formatNum: (n: number) => string;
 };
 
-/** 한국 연간 평균 CPI (물가상승률) — 2020~2025 실적 기반 보수적 추정 */
-const ANNUAL_CPI = 0.032; // 3.2%
+/** 물가 가정 연 2% (한국은행 물가안정목표) */
+const ANNUAL_CPI_PCT = 2;
+const ANNUAL_CPI = ANNUAL_CPI_PCT / 100;
+
+/** 연환산 수익률(XIRR)은 첫 입금 후 이 기간이 지나야 표시 — 짧은 기간의 연환산은 과장된다 */
+const MIN_MONTHS_FOR_ANNUALIZED = 12;
+
+/** 'YYYY-MM-DD'에 개월 수를 더한 날짜 (말일 보정 없이 문자열 비교용) */
+function addMonthsISO(isoDate: string, months: number): string {
+  const [y, m] = isoDate.slice(0, 7).split('-').map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const year = Math.floor(total / 12);
+  const month = String((total % 12) + 1).padStart(2, '0');
+  return `${year}-${month}${isoDate.slice(7, 10)}`;
+}
 
 function Row({
   label,
@@ -99,7 +113,9 @@ export function RealReturnSection({
     const pureStockReturn = (pureStockValue / totalInvested - 1) * 100;
 
     // 연평균 수익률 — 자금가중(XIRR): 입금은 음수, 현재 평가액은 양수 흐름
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayStr = todayISO(now);
+    const showAnnualized =
+      todayStr >= addMonthsISO(oldestDepositDate, MIN_MONTHS_FOR_ANNUALIZED);
     const xirr = calculateXirr([
       ...budgets.map((b) => ({ date: b.month_date, amount: -Number(b.amount) })),
       { date: todayStr, amount: totalAsset },
@@ -114,6 +130,7 @@ export function RealReturnSection({
       nominalReturn,
       realReturn,
       pureStockReturn,
+      showAnnualized,
       annualMoneyWeighted,
       realAnnualMoneyWeighted,
       inflationLoss: realInvested - totalInvested,
@@ -147,7 +164,7 @@ export function RealReturnSection({
       {showInfo && (
         <div className="mb-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
           <p>• <b>명목 수익률</b>: 단순 숫자 기준 수익률</p>
-          <p>• <b>실질 수익률</b>: 연 {(ANNUAL_CPI * 100).toFixed(1)}% 인플레이션을 입금 시점별로 조정한 구매력 기준</p>
+          <p>• <b>실질 수익률</b>: 물가 가정 연 {ANNUAL_CPI_PCT}%를 입금 시점별로 조정한 구매력 기준</p>
           <p>• <b>순수 매매 수익률</b>: 배당·CMA이자 제외한 주식 자체 성과</p>
           <p>• <b>연평균 (XIRR)</b>: 자금가중 연수익률 — 각 입금이 실제로 투자된 기간을 반영한 적립식의 진짜 연수익률</p>
         </div>
@@ -162,7 +179,7 @@ export function RealReturnSection({
         <Row
           label="실질 수익률"
           value={metrics.realReturn}
-          note={`인플레 -${(ANNUAL_CPI * 100).toFixed(1)}%/년`}
+          note={`물가 가정 연 ${ANNUAL_CPI_PCT}%`}
           emphasize
         />
         <Row
@@ -170,14 +187,14 @@ export function RealReturnSection({
           value={metrics.pureStockReturn}
           note="배당·이자 제외"
         />
-        {metrics.annualMoneyWeighted != null && (
+        {metrics.showAnnualized && metrics.annualMoneyWeighted != null && (
           <Row
             label="연평균 (명목)"
             value={metrics.annualMoneyWeighted}
             note="XIRR 자금가중"
           />
         )}
-        {metrics.realAnnualMoneyWeighted != null && (
+        {metrics.showAnnualized && metrics.realAnnualMoneyWeighted != null && (
           <Row
             label="연평균 (실질)"
             value={metrics.realAnnualMoneyWeighted}
@@ -193,9 +210,15 @@ export function RealReturnSection({
         </div>
       </div>
 
+      {!metrics.showAnnualized && (
+        <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
+          연환산 수익률은 투자 {MIN_MONTHS_FOR_ANNUALIZED}개월 이후에 표시합니다
+        </p>
+      )}
+
       {metrics.realReturn < 0 && metrics.nominalReturn > 0 && (
         <p className="mt-3 text-[11px] font-bold text-amber-600 dark:text-amber-400 p-2 rounded-xl bg-amber-50 dark:bg-amber-900/20">
-          ⚠️ 명목 수익은 있지만 실질 구매력은 줄어들었습니다. 인플레를 이기려면 더 공격적 배분 필요.
+          ⚠️ 명목 수익은 있지만 실질 구매력은 줄어들었습니다.
         </p>
       )}
     </section>

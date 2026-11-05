@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Coins, Plus, ChevronDown, Trash2 } from 'lucide-react';
 import type { DividendRecord } from '@/lib/types';
+import { todayISO } from '@/lib/date';
 import { toast } from '../hooks/useToast';
 
 type DividendSectionProps = {
@@ -22,7 +23,7 @@ export function DividendSection({
 }: DividendSectionProps) {
   const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayISO);
   const [assetKey, setAssetKey] = useState('');
   const [amount, setAmount] = useState('');
   const [isReinvested, setIsReinvested] = useState(false);

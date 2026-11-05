@@ -8,6 +8,8 @@ export type RecordBatchItem = {
   date: string;
   batchId: string | null;
   count: number;
+  /** 그중 매도 기록 수 */
+  sellCount: number;
 };
 
 type DeleteByDateModalProps = {
@@ -17,8 +19,7 @@ type DeleteByDateModalProps = {
   recordBatches: RecordBatchItem[];
   selectedKeys: string[];
   onToggleBatch: (key: string) => void;
-  passwordValue: string;
-  onPasswordChange: (v: string) => void;
+  /** 삭제 실행 (확인 창은 호출하는 쪽에서 띄움) */
   onConfirm: () => void;
   isDeleting: boolean;
 };
@@ -29,8 +30,6 @@ export function DeleteByDateModal({
   recordBatches,
   selectedKeys,
   onToggleBatch,
-  passwordValue,
-  onPasswordChange,
   onConfirm,
   isDeleting,
 }: DeleteByDateModalProps) {
@@ -65,7 +64,7 @@ export function DeleteByDateModal({
           </button>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 px-6 pt-3">
-          같은 날 여러 번 저장한 경우 차수별로 나뉩니다. 삭제할 차수만 선택한 뒤 비밀번호를 입력하세요.
+          같은 날 여러 번 저장한 경우 차수별로 나뉩니다. 삭제할 차수를 선택하세요. 삭제 전에 한 번 더 확인합니다.
         </p>
         <div className="px-6 py-3 overflow-y-auto flex-1">
           <div className="flex flex-wrap gap-2">
@@ -85,7 +84,7 @@ export function DeleteByDateModal({
                   className="sr-only"
                 />
                 <span>
-                  {b.date} ({b.nth}차, {b.count}건)
+                  {b.date} ({b.nth}차, {b.count}건{b.sellCount > 0 ? ` · 매도 ${b.sellCount}` : ''})
                 </span>
               </label>
             ))}
@@ -94,18 +93,7 @@ export function DeleteByDateModal({
             <p className="text-sm text-slate-400 py-2">삭제할 수 있는 기록이 없습니다.</p>
           )}
         </div>
-        <div className="p-6 border-t border-slate-200 dark:border-slate-600 space-y-3">
-          <input
-            type="password"
-            inputMode="numeric"
-            placeholder="비밀번호"
-            value={passwordValue}
-            onChange={(e) => onPasswordChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onConfirm();
-            }}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
-          />
+        <div className="p-6 border-t border-slate-200 dark:border-slate-600">
           <div className="flex gap-2">
             <button
               type="button"

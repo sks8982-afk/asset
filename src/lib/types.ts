@@ -88,7 +88,6 @@ export type MyAccountData = {
   totalStockValue: number;
   totalAsset: number;
   totalInvested: number;
-  isCrash: boolean;
   chartHistory: ChartDataPoint[];
   currentExchangeRate: number;
   cumulativeCmaInterestToToday: number;
@@ -130,12 +129,9 @@ export type RebalancingSnapshot = {
 export type BuyGuideItem = {
   qty: number;
   baseQty: number;
-  extraQty: number;
   price: number;
   spent: number;
   drop: number;
-  /** 비중 상한 초과 여부 (목표 비중의 1.5배 초과 시 true) */
-  weightCapped?: boolean;
 };
 
 /** 매수 플랜 결과 */
@@ -143,8 +139,6 @@ export type BuyPlanResult = {
   guide: Record<string, BuyGuideItem>;
   thisMonthResidue: number;
   totalExpectedSpend: number;
-  cmaMonthlyInterest: number;
-  cmaBalanceForInterest: number;
 };
 
 /** 리밸런싱 아이템 */
@@ -156,38 +150,6 @@ export type RebalancingItem = {
   targetAmount: number;
   currentAmount: number;
   diff: number;
-};
-
-// ─── 매수 시그널 시스템 ───
-
-/** 시그널 레벨 (5단계) */
-export type SignalLevel = 'normal' | 'watch' | 'opportunity' | 'strong_buy' | 'all_in';
-
-/** 개별 자산 시그널 */
-export type AssetSignal = {
-  key: string;
-  score: number; // 0-100
-  level: SignalLevel;
-  multiplier: number;
-  drawdownFromPeak: number; // 고점 대비 낙폭 %
-  drawdownScore: number;
-  maBelowPct6: number; // 6개월 MA 대비 괴리율 %
-  maBelowPct12: number; // 12개월 MA 대비 괴리율 %
-  maScore: number;
-  consecutiveDeclines: number; // 연속 하락 개월수
-  momentumScore: number;
-  reasons: string[];
-};
-
-/** 전체 시장 시그널 */
-export type MarketSignal = {
-  overallScore: number; // 0-100
-  overallLevel: SignalLevel;
-  overallMultiplier: number;
-  assetSignals: Record<string, AssetSignal>;
-  correlationScore: number; // 동시 하락 자산수 기반
-  signalCount: number; // opportunity 이상인 자산 수
-  reasons: string[];
 };
 
 // ─── 벤치마크 비교 ───

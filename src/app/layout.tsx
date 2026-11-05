@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { ServiceWorkerRegister } from './components/ServiceWorkerRegister';
+import { AuthGate } from './components/AuthGate';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -64,7 +65,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    // 테마 inline script가 하이드레이션 전에 .dark 클래스를 붙이므로 html의 class 불일치 경고는 의도된 것
+    <html lang="ko" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{ __html: setInitialTheme }}
@@ -74,7 +76,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ServiceWorkerRegister />
-        {children}
+        <AuthGate>{children}</AuthGate>
       </body>
     </html>
   );

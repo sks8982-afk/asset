@@ -1,7 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Settings, X } from 'lucide-react';
+import { AlertTriangle, LogOut, Settings, X } from 'lucide-react';
+import { useAuth } from './AuthGate';
+import { toast } from '../hooks/useToast';
+
+/** DB 초기화 버튼을 켜려면 입력해야 하는 문구 */
+const RESET_CONFIRM_WORD = '초기화';
 
 type RatioPreset = { name: string; ratios: Record<string, number> };
 
@@ -25,6 +30,9 @@ type SettingsModalProps = {
   emergencyFundAmount: number;
   setEmergencyFundAmount: (v: number) => void;
   saveEmergencyFundToDb: (amount: number) => Promise<void>;
+  /** 장부 전체 삭제 */
+  onResetDb: () => Promise<void>;
+  isResetting: boolean;
 };
 
 export function SettingsModal(props: SettingsModalProps) {
@@ -50,7 +58,12 @@ function SettingsModalBody({
   emergencyFundAmount,
   setEmergencyFundAmount,
   saveEmergencyFundToDb,
+  onResetDb,
+  isResetting,
 }: SettingsModalProps) {
+  const { signOut } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState('');
   const [draftBudget, setDraftBudget] = useState(inputBudget);
   const [draftRatios, setDraftRatios] = useState<Record<string, number>>(
     () => customRatios ?? defaultRatios
@@ -69,6 +82,22 @@ function SettingsModalBody({
     if (Number.isFinite(draftCmaRate) && draftCmaRate >= 0)
       localStorage.setItem(storageKeyCmaRate, String(draftCmaRate));
     saveEmergencyFundToDb(draftEmergencyFund);
+    onClose();
+  };
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    const { error } = await signOut();
+    // 성공하면 로그인 화면으로 바뀌며 이 창도 사라진다
+    if (error) {
+      toast.error(error);
+      setSigningOut(false);
+    }
+  };
+
+  const handleResetDb = async () => {
+    if (resetConfirm.trim() !== RESET_CONFIRM_WORD) return;
+    await onResetDb();
     onClose();
   };
 
@@ -221,6 +250,47 @@ function SettingsModalBody({
               저장
             </button>
           </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-600">
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <LogOut size={16} />
+            {signingOut ? '로그아웃 중…' : '로그아웃'}
+          </button>
+        </div>
+
+        {/* 위험 구역 — 입력 확인 후에만 실행 */}
+        <div className="p-6 border-t border-rose-200 dark:border-rose-900 bg-rose-50/60 dark:bg-rose-950/20 space-y-3">
+          <h3 className="text-sm font-black text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <AlertTriangle size={16} /> 위험 구역 · DB 초기화
+          </h3>
+          <p className="text-xs text-rose-700/80 dark:text-rose-300/80">
+            매수·매도 기록, 월별 입금, 배당 기록이 모두 삭제됩니다. 되돌릴 수 없습니다.
+          </p>
+          <label className="block text-xs font-bold text-slate-600 dark:text-slate-300">
+            실행하려면 &quot;{RESET_CONFIRM_WORD}&quot;를 입력하세요
+            <input
+              type="text"
+              value={resetConfirm}
+              onChange={(e) => setResetConfirm(e.target.value)}
+              placeholder={RESET_CONFIRM_WORD}
+              autoComplete="off"
+              className="mt-1.5 w-full px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-800 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleResetDb}
+            disabled={resetConfirm.trim() !== RESET_CONFIRM_WORD || isResetting}
+            className="w-full py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isResetting ? '초기화 중…' : 'DB 초기화'}
+          </button>
         </div>
       </div>
     </div>

@@ -2,21 +2,18 @@
 
 import React, { useState } from 'react';
 import { X, TrendingDown, AlertTriangle } from 'lucide-react';
+import { SELL_REASON_LABELS, type SellReason } from '@/lib/ips';
+import { todayISO } from '@/lib/date';
 import { toast } from '../hooks/useToast';
+import type { SellSubmission } from '../hooks/useSellFlow';
 
-export type SellReason =
-  | 'rebalancing'
-  | 'goal_reached'
-  | 'emergency_cash'
-  | 'strategy_change'
-  | 'other';
-
-export const SELL_REASONS: { key: SellReason; label: string; desc: string; friction: 'low' | 'high' }[] = [
-  { key: 'rebalancing',     label: '분기 리밸런싱',   desc: '3/6/9/12월 비중 재조정', friction: 'low' },
-  { key: 'goal_reached',    label: '목표 달성',       desc: 'ROI/자산 목표 도달',      friction: 'low' },
-  { key: 'emergency_cash',  label: '긴급 자금 필요',  desc: '예비비로 부족',           friction: 'low' },
-  { key: 'strategy_change', label: '전략 변경',       desc: '비중·자산 교체',          friction: 'low' },
-  { key: 'other',           label: '⚠️ 기타 (감정 포함)', desc: '공포/후회/조급함 등',  friction: 'high' },
+/** 매도 사유 선택지 — 'other'는 감정 매도 확인을 한 번 더 받는다 */
+const SELL_REASONS: { key: SellReason; desc: string; friction: 'low' | 'high' }[] = [
+  { key: 'rebalancing',    desc: '목표 비중으로 되돌리기', friction: 'low' },
+  { key: 'simplify',       desc: '보유만 종목 정리·교체',  friction: 'low' },
+  { key: 'goal_reached',   desc: 'ROI/자산 목표 도달',     friction: 'low' },
+  { key: 'emergency_cash', desc: '예비비로 부족',          friction: 'low' },
+  { key: 'other',          desc: '공포/후회/조급함 등',    friction: 'high' },
 ];
 
 type SellRecordModalProps = {
@@ -27,14 +24,7 @@ type SellRecordModalProps = {
   currentPriceMap: Record<string, number>;
   formatNum: (n: number) => string;
   formatDec: (n: number) => string;
-  onSave: (sellData: {
-    asset_key: string;
-    quantity: number;
-    price: number;
-    amount: number;
-    date: string;
-    reason?: string;
-  }) => Promise<void>;
+  onSave: (sellData: SellSubmission) => Promise<void>;
   isSaving: boolean;
 };
 
@@ -52,11 +42,8 @@ export function SellRecordModal({
   const [selectedAsset, setSelectedAsset] = useState('');
   const [sellQty, setSellQty] = useState('');
   const [sellPrice, setSellPrice] = useState('');
-  const [sellDate, setSellDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [sellDate, setSellDate] = useState(todayISO);
   const [reason, setReason] = useState<SellReason | ''>('');
-  const [reasonNote, setReasonNote] = useState('');
   const [confirmEmotional, setConfirmEmotional] = useState(false);
 
   if (!open) return null;
@@ -101,21 +88,18 @@ export function SellRecordModal({
       toast.warning('⚠️ 감정 매도일 수 있습니다. 확인 체크를 눌러주세요.');
       return;
     }
-    const reasonLabel = SELL_REASONS.find((r) => r.key === reason)?.label ?? reason;
-    const fullReason = reasonNote ? `${reasonLabel} - ${reasonNote}` : reasonLabel;
     await onSave({
       asset_key: selectedAsset,
       quantity: qty,
       price,
       amount: totalAmount,
       date: sellDate,
-      reason: fullReason,
+      reason,
     });
     setSelectedAsset('');
     setSellQty('');
     setSellPrice('');
     setReason('');
-    setReasonNote('');
     setConfirmEmotional(false);
     onClose();
   };
@@ -247,7 +231,9 @@ export function SellRecordModal({
                           : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 hover:border-zinc-400'
                       }`}
                     >
-                      <div className="text-sm font-bold">{r.label}</div>
+                      <div className="text-sm font-bold">
+                        {isRisky ? '⚠️ ' : ''}{SELL_REASON_LABELS[r.key]}
+                      </div>
                       <div className="text-[11px] text-zinc-500 mt-0.5">{r.desc}</div>
                     </button>
                   );
@@ -269,18 +255,10 @@ export function SellRecordModal({
                       onChange={(e) => setConfirmEmotional(e.target.checked)}
                       className="w-4 h-4"
                     />
-                    <span>그럼에도 매도하겠습니다 (감정 매도 기록됨)</span>
+                    <span>그럼에도 매도하겠습니다</span>
                   </label>
                 </div>
               )}
-
-              <input
-                type="text"
-                value={reasonNote}
-                onChange={(e) => setReasonNote(e.target.value)}
-                placeholder="세부 메모 (선택)"
-                className="w-full mt-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-xs"
-              />
             </div>
           </>
         )}

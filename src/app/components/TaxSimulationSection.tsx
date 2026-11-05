@@ -6,15 +6,17 @@ import type { TaxSimulation } from '@/lib/types';
 import { CRYPTO_TAX_EFFECTIVE_YEAR } from '@/lib/constants';
 
 type TaxSimulationSectionProps = {
+  /** 가입 이후 누적 (calculateTaxSimulation을 연도 없이 호출한 결과) */
   taxData: TaxSimulation;
   formatNum: (n: number) => string;
-  currentYear: number;
+  /** 비트코인 보유분이나 실현 이익이 있을 때만 BTC 항목 표시 */
+  showBtc: boolean;
 };
 
 export function TaxSimulationSection({
   taxData,
   formatNum,
-  currentYear,
+  showBtc,
 }: TaxSimulationSectionProps) {
   const [open, setOpen] = useState(false);
 
@@ -23,7 +25,7 @@ export function TaxSimulationSection({
     : 0;
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow p-5 space-y-3">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow p-5 space-y-3">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -31,7 +33,7 @@ export function TaxSimulationSection({
       >
         <h2 className="font-bold text-base flex items-center gap-2">
           <Calculator className="w-5 h-5 text-violet-500" />
-          {currentYear}년 세금 시뮬레이션
+          ISA 세금 (가입 이후 누적)
           <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
             서민형 ISA
           </span>
@@ -70,7 +72,7 @@ export function TaxSimulationSection({
               <span className="text-emerald-600 dark:text-emerald-400">
                 사용: {formatNum(Math.min(taxData.isaTotalProfit, taxData.isaTaxFreeLimit))}원
               </span>
-              <span className="text-zinc-400">
+              <span className="text-slate-400">
                 한도: {formatNum(taxData.isaTaxFreeLimit)}원
               </span>
             </div>
@@ -87,82 +89,82 @@ export function TaxSimulationSection({
           </div>
 
           {/* ISA 계좌 상세 */}
-          <div className="bg-zinc-50 dark:bg-zinc-800 rounded-xl p-4 space-y-2">
-            <h3 className="text-sm font-bold text-zinc-600 dark:text-zinc-300">ISA 계좌 내 (손익통산 적용)</h3>
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-2">
+            <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300">ISA 계좌 내 (손익통산 적용)</h3>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
-                <span className="text-zinc-500">매매 순이익 (이익-손실)</span>
+                <span className="text-slate-500">매매 순이익 (이익-손실)</span>
                 <span className={taxData.isaNetGain > 0 ? 'text-green-600 font-medium' : ''}>
                   {formatNum(taxData.isaNetGain)}원
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">배당 수익</span>
+                <span className="text-slate-500">배당 수익</span>
                 <span>{formatNum(taxData.isaDividend)}원</span>
               </div>
-              <div className="flex justify-between border-t border-zinc-200 dark:border-zinc-700 pt-1">
-                <span className="text-zinc-500 font-medium">ISA 총 순이익</span>
+              <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-1">
+                <span className="text-slate-500 font-medium">ISA 총 순이익</span>
                 <span className="font-bold">{formatNum(taxData.isaTotalProfit)}원</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">비과세 적용</span>
+                <span className="text-slate-500">비과세 적용</span>
                 <span className="text-emerald-600">-{formatNum(taxData.isaTaxFreeAmount)}원</span>
               </div>
               {taxData.isaTaxableAmount > 0 && (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-zinc-500">분리과세 대상</span>
+                    <span className="text-slate-500">분리과세 대상</span>
                     <span>{formatNum(taxData.isaTaxableAmount)}원</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-zinc-500">세금 (9.9%)</span>
+                    <span className="text-slate-500">세금 (9.9%)</span>
                     <span className="font-bold text-red-500">{formatNum(taxData.isaTax)}원</span>
                   </div>
                 </>
               )}
               {taxData.isaTaxableAmount === 0 && (
                 <div className="flex justify-between">
-                  <span className="text-zinc-500">세금</span>
+                  <span className="text-slate-500">세금</span>
                   <span className="font-bold text-emerald-600">0원 (전액 비과세)</span>
                 </div>
               )}
             </div>
-            <p className="text-[11px] text-zinc-400 mt-2">
-              * ISA는 손익통산 적용 — 어떤 종목에서 손실이 나도 다른 종목 이익에서 차감됩니다.
-              일반 계좌에서는 이익에만 과세되므로 ISA가 유리합니다.
+            <p className="text-[11px] text-slate-400 mt-2">
+              * 국내주식·국내주식형 ETF 손익은 비과세로 보고 제외했습니다(보수적 추정).
+              해외지수·금 ETF 매매손익과 분배금만 합산합니다.
             </p>
           </div>
 
-          {/* BTC (ISA 밖) */}
-          <div className="bg-zinc-50 dark:bg-zinc-800 rounded-xl p-4 space-y-2">
-            <h3 className="text-sm font-bold text-zinc-600 dark:text-zinc-300">ISA 밖 — 비트코인</h3>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-zinc-500">양도차익</span>
-                <span>{formatNum(taxData.btcGain)}원</span>
+          {/* BTC (ISA 밖) — 보유분이나 실현 이익이 있을 때만 */}
+          {showBtc && (
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-2">
+              <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300">ISA 밖 — 비트코인</h3>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">실현 양도차익</span>
+                  <span>{formatNum(taxData.btcGain)}원</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">과세표준 (연 250만원 공제, {CRYPTO_TAX_EFFECTIVE_YEAR}년 귀속분부터)</span>
+                  <span>{formatNum(taxData.btcTaxBase)}원</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">세금 (22%)</span>
+                  <span className="font-bold text-red-500">{formatNum(taxData.btcTax)}원</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">기본공제 (250만원)</span>
-                <span>-{formatNum(Math.min(taxData.btcGain, 2500000))}원</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">세금 (22%)</span>
-                <span className="font-bold text-red-500">{formatNum(taxData.btcTax)}원</span>
-              </div>
+              <p className="text-[11px] text-slate-400">
+                * 가상자산 과세는 {CRYPTO_TAX_EFFECTIVE_YEAR}년 시행 예정이지만 추가 유예가 논의 중입니다(미확정).
+              </p>
             </div>
-            <p className="text-[11px] text-zinc-400">
-              {currentYear < CRYPTO_TAX_EFFECTIVE_YEAR
-                ? `* 가상자산 양도세는 ${CRYPTO_TAX_EFFECTIVE_YEAR}년 시행 예정 — ${currentYear}년 귀속분은 과세되지 않습니다.`
-                : '* 비트코인(가상자산)은 ISA 계좌에 편입 불가. 250만원 공제 후 22% 과세.'}
-            </p>
-          </div>
+          )}
 
           {/* 총 요약 + 절세 효과 */}
           <div className="space-y-2">
             <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-4">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-violet-700 dark:text-violet-300">
-                  {currentYear}년 총 예상 세금
+                  총 예상 세금 (누적)
                 </span>
                 <span className="text-xl font-bold text-violet-700 dark:text-violet-300">
                   {formatNum(taxData.totalEstimatedTax)}원
@@ -183,9 +185,9 @@ export function TaxSimulationSection({
             )}
           </div>
 
-          <p className="text-xs text-zinc-400">
-            * 서민형 ISA 기준 (비과세 400만원, 초과 9.9% 분리과세). 의무가입 3년, 연 납입한도 2,000만원.
-            시뮬레이션은 참고용이며 실제 세금은 세무사와 상담하세요.
+          <p className="text-xs text-slate-400">
+            * 서민형 ISA 기준 — 가입 이후 계좌 전체 순이익 400만원까지 비과세, 초과분 9.9% 분리과세.
+            만기·해지 때 한 번에 정산합니다(의무가입 3년). 시뮬레이션은 참고용이며 실제 세금은 세무사와 상담하세요.
           </p>
         </div>
       )}

@@ -3,37 +3,17 @@
 import React, { useState } from 'react';
 import { Shield, Edit3, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
 
-const STORAGE_KEY = 'asset-tracker-ips';
-
-const DEFAULT_RULES = [
-  '월급의 고정 비율을 무조건 적립한다 (시장 상황 무관).',
-  'ROI -20% 전까지는 매도하지 않는다.',
-  '비중 변경은 3개월에 1회, 분기 리밸런싱 때만 한다.',
-  '패닉 매수는 시그널 점수 56점 이상일 때만 허용한다.',
-  '하루 수익률에 반응하지 않고 월 단위로만 성과를 본다.',
-];
-
-function loadRules(): string[] {
-  if (typeof window === 'undefined') return DEFAULT_RULES;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_RULES;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.filter((s): s is string => typeof s === 'string');
-    }
-  } catch {
-    // ignore
-  }
-  return DEFAULT_RULES;
-}
+type InvestmentPolicySectionProps = {
+  /** 투자 원칙 문구 (표시용 — 매도 점검 규칙은 따로 고정) */
+  rules: string[];
+  onSave: (rules: string[]) => void;
+};
 
 /**
  * Investment Policy Statement — 투자 규칙을 메인 화면 상단에 항상 표시.
  * 감정이 흔들릴 때마다 본인이 정한 규칙을 다시 상기시키는 역할.
  */
-export function InvestmentPolicySection() {
-  const [rules, setRules] = useState<string[]>(() => loadRules());
+export function InvestmentPolicySection({ rules, onSave }: InvestmentPolicySectionProps) {
   const [editing, setEditing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [draft, setDraft] = useState<string>('');
@@ -49,8 +29,7 @@ export function InvestmentPolicySection() {
       .map((s) => s.trim())
       .filter(Boolean);
     if (next.length === 0) return;
-    setRules(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    onSave(next);
     setEditing(false);
   };
 
@@ -118,11 +97,16 @@ export function InvestmentPolicySection() {
           placeholder="한 줄에 하나씩 규칙을 작성하세요"
         />
       ) : !collapsed && (
-        <ol className="list-decimal list-inside space-y-1 text-xs text-indigo-900 dark:text-indigo-100 font-medium">
-          {rules.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ol>
+        <>
+          <ol className="list-decimal list-inside space-y-1 text-xs text-indigo-900 dark:text-indigo-100 font-medium">
+            {rules.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ol>
+          <p className="mt-2 text-[10px] text-indigo-500 dark:text-indigo-300">
+            규칙 문구는 표시용입니다. 매도할 때는 손실 중인 코어 매도 · 감정 사유 · 잦은 매도를 따로 점검합니다.
+          </p>
+        </>
       )}
     </section>
   );

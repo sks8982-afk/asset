@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Heart, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { todayISO } from '@/lib/date';
 import { toast } from '../hooks/useToast';
 
 const STORAGE_KEY = 'asset-tracker-emotion-journal';
@@ -67,7 +68,7 @@ export function EmotionJournalSection({ totalAsset, formatNum }: EmotionJournalS
     }
     const entry: EmotionEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      date: new Date().toISOString().slice(0, 10),
+      date: todayISO(),
       score: draftScore,
       action: draftAction,
       note: draftNote.trim(),

@@ -6,8 +6,6 @@ import type {
   DbHistory, DividendRecord, MarketDataPoint, LivePrices,
 } from '@/lib/types';
 
-type MarketIndex = { price: number; change: number; changePct: number };
-
 export type MarketMeta = {
   /** 시세 조회 시각 (ISO). null이면 아직 성공한 조회 없음 */
   fetchedAt: string | null;
@@ -26,7 +24,6 @@ type UseAppDataResult = {
   fullMarketHistory: MarketDataPoint[];
   livePrices: LivePrices | null;
   marketMeta: MarketMeta;
-  marketIndices: Record<string, MarketIndex>;
   dbHistory: DbHistory;
   setDbHistory: React.Dispatch<React.SetStateAction<DbHistory>>;
   emergencyFundAmount: number;
@@ -49,7 +46,6 @@ export function useAppData(): UseAppDataResult {
     exStale: false,
     error: false,
   });
-  const [marketIndices, setMarketIndices] = useState<Record<string, MarketIndex>>({});
   const [dbHistory, setDbHistory] = useState<DbHistory>({
     budgets: [], records: [], batchSummaries: [], snapshots: [], dividends: [],
   });
@@ -57,8 +53,8 @@ export function useAppData(): UseAppDataResult {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const reload = useCallback(async () => {
-    setIsRefreshing(true);
+  // 첫 await 전에는 state를 바꾸지 않는다 (마운트 effect에서 바로 호출)
+  const fetchAll = useCallback(async () => {
     try {
       // 시세 로드 실패 시 앱 전체가 죽지 않도록 격리 — 기존 데이터 유지 + 오류 표시
       try {
@@ -76,11 +72,10 @@ export function useAppData(): UseAppDataResult {
             error: false,
           });
         } else if (payload && Array.isArray(payload.history)) {
-          const { history, latest, indices, fetchedAt, staleKeys, exStale } = payload;
+          const { history, latest, fetchedAt, staleKeys, exStale } = payload;
           setFullMarketHistory(history);
           setMarketData(history.filter((d: MarketDataPoint) => d.d >= '2025-01'));
           setLivePrices(latest || null);
-          if (indices) setMarketIndices(indices);
           setMarketMeta({
             fetchedAt: typeof fetchedAt === 'string' ? fetchedAt : new Date().toISOString(),
             staleKeys: Array.isArray(staleKeys) ? staleKeys : [],
@@ -185,9 +180,14 @@ export function useAppData(): UseAppDataResult {
     }
   }, []);
 
+  const reload = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchAll();
+  }, [fetchAll]);
+
   useEffect(() => {
-    reload();
-  }, [reload]);
+    void fetchAll();
+  }, [fetchAll]);
 
   return {
     loading,
@@ -196,7 +196,6 @@ export function useAppData(): UseAppDataResult {
     fullMarketHistory,
     livePrices,
     marketMeta,
-    marketIndices,
     dbHistory,
     setDbHistory,
     emergencyFundAmount,

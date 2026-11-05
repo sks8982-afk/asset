@@ -1,6 +1,5 @@
 import type {
   InvestmentRecord, MonthlyBudget, TaxSimulation, DividendRecord,
-  AssetSignal, MarketSignal, SignalLevel,
   BenchmarkPoint, BenchmarkResult,
 } from './types';
 import type { IsaType } from './constants';
@@ -9,6 +8,13 @@ import {
   ISA_ELIGIBLE_KEYS, NON_ISA_KEYS, ISA_TAX_FREE_LIMIT, ISA_SEPARATED_TAX_RATE,
   CRYPTO_TAX_EFFECTIVE_YEAR, TAXABLE_GAIN_KEYS,
 } from './constants';
+import { currentYearMonth, todayISO } from './date';
+
+export { planCoreBuys, coreDrift, drawdownFromHigh } from './core';
+export type { CoreBuyLine, CoreBuyPlan, CoreDriftEntry } from './core';
+
+/** 현금으로 들어오는 배당 (날짜·금액만 사용) */
+export type CashDividend = Pick<DividendRecord, 'date' | 'amount'>;
 
 /** 기록의 유효 매수액: amount_override가 있으면 사용, 없으면 amount */
 export function getRecordAmount(r: {
@@ -51,11 +57,12 @@ export function filterSellRecords(records: InvestmentRecord[]): InvestmentRecord
   return records.filter((r) => r.type === 'sell');
 }
 
-/** 특정 날짜(YYYY-MM-DD) 기준 CMA 잔액: 누적 입금 - 누적 매수 + 누적 매도 */
+/** 특정 날짜(YYYY-MM-DD) 기준 CMA 잔액: 누적 입금 - 누적 매수 + 누적 매도 + 누적 배당 */
 export function getCashBalanceOnDate(
   dateStr: string,
   budgets: MonthlyBudget[],
   records: InvestmentRecord[],
+  dividends: CashDividend[] = [],
 ): number {
   const deposit =
     budgets
@@ -75,7 +82,12 @@ export function getCashBalanceOnDate(
       .filter((r) => (r.date || '').substring(0, 10) <= dateStr)
       .reduce((acc, cur) => acc + getRecordAmount(cur), 0) || 0;
 
-  return Math.max(0, deposit - spent + sellProceeds);
+  const dividendIncome =
+    dividends
+      .filter((d) => (d.date || '').substring(0, 10) <= dateStr)
+      .reduce((acc, cur) => acc + Number(cur.amount ?? 0), 0) || 0;
+
+  return Math.max(0, deposit - spent + sellProceeds + dividendIncome);
 }
 
 /** 해당 월(YYYY-MM) 동안 일별 잔액 기준으로 쌓인 CMA 이자 */
@@ -84,6 +96,7 @@ export function getInterestAccruedInMonth(
   budgets: MonthlyBudget[],
   records: InvestmentRecord[],
   annualRatePct: number,
+  dividends: CashDividend[] = [],
 ): number {
   const [y, m] = yearMonth.split('-').map(Number);
   if (!y || !m) return 0;
@@ -92,7 +105,7 @@ export function getInterestAccruedInMonth(
   const dailyRate = annualRatePct / 100 / 365;
   for (let d = 1; d <= lastDay; d++) {
     const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const balance = getCashBalanceOnDate(dateStr, budgets, records);
+    const balance = getCashBalanceOnDate(dateStr, budgets, records, dividends);
     interest += balance * dailyRate;
   }
   return interest;
@@ -104,31 +117,33 @@ export function getCumulativeInterestByMonths(
   budgets: MonthlyBudget[],
   records: InvestmentRecord[],
   annualRatePct: number,
+  dividends: CashDividend[] = [],
 ): number[] {
   const out: number[] = [];
   let cum = 0;
   for (const ym of monthStrings) {
-    cum += getInterestAccruedInMonth(ym, budgets, records, annualRatePct);
+    cum += getInterestAccruedInMonth(ym, budgets, records, annualRatePct, dividends);
     out.push(cum);
   }
   return out;
 }
 
-/** 현재월 1일 ~ 오늘까지 쌓인 이자 */
+/** 현재월 1일 ~ 오늘까지 쌓인 이자 (날짜는 KST 기준) */
 export function getInterestFromMonthStartToToday(
   budgets: MonthlyBudget[],
   records: InvestmentRecord[],
   annualRatePct: number,
+  dividends: CashDividend[] = [],
+  now: Date = new Date(),
 ): number {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const today = now.getDate();
+  const todayStr = todayISO(now);
+  const yearMonth = todayStr.slice(0, 7);
+  const today = Number(todayStr.slice(8, 10));
   let interest = 0;
   const dailyRate = annualRatePct / 100 / 365;
   for (let d = 1; d <= today; d++) {
-    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const balance = getCashBalanceOnDate(dateStr, budgets, records);
+    const dateStr = `${yearMonth}-${String(d).padStart(2, '0')}`;
+    const balance = getCashBalanceOnDate(dateStr, budgets, records, dividends);
     interest += balance * dailyRate;
   }
   return interest;
@@ -147,9 +162,90 @@ export function formatDec(n: number): string {
   });
 }
 
+/** 자산별 보유 현황 (이동평균법) */
+export type Position = {
+  /** 보유 수량 */
+  qty: number;
+  /** 보유분 취득원가 (= 평균단가 × 보유 수량) */
+  cost: number;
+  /** 이동평균 단가 (보유가 없으면 0) */
+  avgCost: number;
+};
+
+type RealizedSell = { assetKey: string; date: string; pnl: number };
+
+/** 이 수량 이하로 남으면 전량 매도로 본다 (BTC 소수 수량의 부동소수 오차 흡수) */
+const QTY_EPSILON = 1e-9;
+
+const EMPTY_POSITION: Position = { qty: 0, cost: 0, avgCost: 0 };
+
+/** 날짜순, 같은 날은 매수 먼저 (보유 없이 매도하는 순서를 피함), 그다음 입력 순서 */
+function chronological(records: InvestmentRecord[]): InvestmentRecord[] {
+  const sellRank = (r: InvestmentRecord): number => (r.type === 'sell' ? 1 : 0);
+  return records
+    .map((r, i) => ({ r, i }))
+    .sort(
+      (a, b) =>
+        (a.r.date || '').slice(0, 10).localeCompare((b.r.date || '').slice(0, 10)) ||
+        sellRank(a.r) - sellRank(b.r) ||
+        a.i - b.i,
+    )
+    .map(({ r }) => r);
+}
+
+function applyBuy(p: Position, qty: number, amount: number): Position {
+  const nextQty = p.qty + qty;
+  const nextCost = p.cost + amount;
+  return { qty: nextQty, cost: nextCost, avgCost: nextQty > QTY_EPSILON ? nextCost / nextQty : 0 };
+}
+
+/** 매도: 수량만 줄고 평균단가는 유지. 전량 매도면 원가 기준 초기화 */
+function applySell(p: Position, qty: number): Position {
+  const nextQty = p.qty - qty;
+  if (nextQty <= QTY_EPSILON) return EMPTY_POSITION;
+  return { qty: nextQty, cost: p.avgCost * nextQty, avgCost: p.avgCost };
+}
+
 /**
- * 자산별 실현 손익 계산 (매도 기록 기반, 평균 단가법)
- * 평균 단가는 전체 매수 기록으로 계산하고,
+ * 이동평균법 장부 — 자산별로 기록을 날짜순 처리한다.
+ * - 매수: 평균단가 = (보유 원가 + 매수액) / (보유 수량 + 매수 수량)
+ * - 매도: 실현 손익 = 매도액 − 평균단가 × 매도 수량
+ */
+function runMovingAverage(records: InvestmentRecord[]): {
+  positions: Record<string, Position>;
+  sells: RealizedSell[];
+} {
+  const positions: Record<string, Position> = {};
+  const sells: RealizedSell[] = [];
+  for (const r of chronological(records)) {
+    const key = r.asset_key;
+    const prev = positions[key] ?? EMPTY_POSITION;
+    const qty = getRecordQty(r);
+    if (r.type === 'sell') {
+      sells.push({ assetKey: key, date: r.date || '', pnl: getRecordAmount(r) - prev.avgCost * qty });
+      positions[key] = applySell(prev, qty);
+    } else {
+      positions[key] = applyBuy(prev, qty, getRecordAmount(r));
+    }
+  }
+  return { positions, sells };
+}
+
+/** 자산별 현재 보유 수량·취득원가·평균단가 (이동평균법) */
+export function calculatePositions(records: InvestmentRecord[]): Record<string, Position> {
+  return runMovingAverage(records).positions;
+}
+
+/** 자산별 현재 이동평균 단가 */
+function averageBuyCosts(records: InvestmentRecord[]): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(calculatePositions(records)).map(([key, p]) => [key, p.avgCost]),
+  );
+}
+
+/**
+ * 자산별 실현 손익 (이동평균법).
+ * 평균단가는 전체 기록을 날짜순으로 따라가며 구하고,
  * sellYear를 주면 해당 연도의 매도만 손익에 집계한다.
  */
 export function calculateRealizedPnl(
@@ -157,51 +253,48 @@ export function calculateRealizedPnl(
   sellYear?: number,
 ): Record<string, number> {
   const result: Record<string, number> = {};
-  const buyRecords = filterBuyRecords(records);
-  const sellRecords = filterSellRecords(records).filter(
-    (r) => sellYear == null || r.date.startsWith(String(sellYear)),
-  );
-
-  // 자산별 평균 매수단가 계산
-  const avgCostByAsset: Record<string, number> = {};
-  const qtyByAsset: Record<string, number> = {};
-
-  for (const r of buyRecords) {
-    const key = r.asset_key;
-    const qty = getRecordQty(r);
-    const cost = getRecordAmount(r);
-    if (!qtyByAsset[key]) {
-      qtyByAsset[key] = 0;
-      avgCostByAsset[key] = 0;
-    }
-    const totalCost = avgCostByAsset[key] * qtyByAsset[key] + cost;
-    qtyByAsset[key] += qty;
-    avgCostByAsset[key] = qtyByAsset[key] > 0 ? totalCost / qtyByAsset[key] : 0;
+  for (const s of runMovingAverage(records).sells) {
+    if (sellYear != null && !s.date.startsWith(String(sellYear))) continue;
+    result[s.assetKey] = (result[s.assetKey] ?? 0) + s.pnl;
   }
-
-  // 매도별 실현 손익 = (매도가 - 평균매수가) × 매도수량
-  for (const r of sellRecords) {
-    const key = r.asset_key;
-    const sellQty = getRecordQty(r);
-    const sellAmount = getRecordAmount(r);
-    const avgCost = avgCostByAsset[key] ?? 0;
-    const costBasis = avgCost * sellQty;
-    const pnl = sellAmount - costBasis;
-    result[key] = (result[key] ?? 0) + pnl;
-  }
-
   return result;
+}
+
+/**
+ * 가상자산(ISA 밖) 연도별 과세 — 그해 손익을 통산해 250만원 공제 후 22%.
+ * 2027년 귀속분부터 시행이라 그 전 연도 이익은 과세표준에 넣지 않는다.
+ */
+function cryptoTaxBase(
+  records: InvestmentRecord[],
+  year?: number,
+): { btcGain: number; btcTaxBase: number } {
+  const sellYears = filterSellRecords(records)
+    .filter((r) => NON_ISA_KEYS.includes(r.asset_key))
+    .map((r) => Number((r.date || '').slice(0, 4)))
+    .filter((y) => Number.isFinite(y) && y > 0);
+  const years = year != null ? [year] : Array.from(new Set(sellYears));
+
+  return years.reduce(
+    (acc, y) => {
+      const pnl = calculateRealizedPnl(records, y);
+      const gain = Math.max(0, NON_ISA_KEYS.reduce((sum, key) => sum + (pnl[key] ?? 0), 0));
+      const base = y >= CRYPTO_TAX_EFFECTIVE_YEAR ? Math.max(0, gain - FOREIGN_TAX_EXEMPTION) : 0;
+      return { btcGain: acc.btcGain + gain, btcTaxBase: acc.btcTaxBase + base };
+    },
+    { btcGain: 0, btcTaxBase: 0 },
+  );
 }
 
 /**
  * 세금 시뮬레이션 계산 — 서민형 ISA 계좌 기반
  *
- * ISA 계좌 핵심 규칙:
- * 1. ISA 대상 자산(국내 상장 ETF/주식)의 매매차익 + 배당을 모두 합산
- * 2. **손익통산**: 이익에서 손실을 빼서 순이익 산출
- * 3. 순이익 400만원(서민형)까지 비과세
- * 4. 초과분은 9.9% 분리과세 (일반 15.4% 대비 유리)
- * 5. BTC 등 ISA 불가 자산은 별도 과세 (250만원 공제 후 22%)
+ * ISA는 만기·해지 때 계좌 전체 기간의 순이익으로 한 번 정산한다:
+ * 1. 과세 대상 = 해외지수·금현물 ETF 매매손익(이익·손실 통산) + 분배금(배당). 손실은 배당과도 통산
+ * 2. 국내주식·국내주식형 ETF 매매손익은 제외 — 이익은 비과세, 손실 통산 여부는 불확실해 보수적으로 넣지 않음
+ * 3. 순이익 400만원(서민형)/200만원(일반형)까지 비과세, 초과분 9.9% 분리과세
+ * 4. BTC 등 ISA 밖 자산은 연도별 과세 (250만원 공제 후 22%, 2027년 귀속분부터)
+ *
+ * @param year 생략하면 전체 기간 누적(기본, ISA 정산 기준). 지정하면 그해 매도·배당만 집계
  */
 export function calculateTaxSimulation(
   records: InvestmentRecord[],
@@ -209,33 +302,23 @@ export function calculateTaxSimulation(
   year?: number,
   isaType: IsaType = 'common',
 ): TaxSimulation {
-  const targetYear = year ?? new Date().getFullYear();
-  const yearStr = String(targetYear);
+  const inPeriod = (date: string): boolean => year == null || (date || '').startsWith(String(year));
 
-  // 평균 단가는 전체 매수 기록으로, 손익은 대상 연도 매도만 집계
-  // (당해년도 기록만 쓰면 과거에 산 종목의 취득원가가 0으로 잡혀 세금이 부풀려짐)
-  const realizedPnl = calculateRealizedPnl(records, targetYear);
+  // 평균 단가는 전체 기록으로(이동평균), 손익은 대상 기간 매도만 집계
+  // (기간 내 기록만 쓰면 과거에 산 종목의 취득원가가 0으로 잡혀 세금이 부풀려짐)
+  const realizedPnl = calculateRealizedPnl(records, year);
 
   // ─── ISA 계좌 내 (손익통산) ───
-  // ISA 대상 자산의 이익과 손실을 각각 합산
-  let isaGains = 0;
-  let isaLosses = 0;
-  for (const key of ISA_ELIGIBLE_KEYS) {
-    const pnl = realizedPnl[key] ?? 0;
-    if (pnl > 0) isaGains += pnl;
-    else isaLosses += Math.abs(pnl);
-  }
-  // 손익통산: 이익 - 손실 = 순이익
-  const isaNetGain = Math.max(0, isaGains - isaLosses);
+  // 해외지수·금 ETF 매매 순손익 (음수 가능)
+  const isaNetGain = TAXABLE_GAIN_KEYS.reduce((sum, key) => sum + (realizedPnl[key] ?? 0), 0);
 
-  // ISA 내 배당 (ISA 대상 자산의 배당만)
-  const yearDividends = dividends.filter((d) => d.date.startsWith(yearStr));
-  const isaDividend = yearDividends
-    .filter((d) => ISA_ELIGIBLE_KEYS.includes(d.asset_key))
-    .reduce((sum, d) => sum + d.amount, 0);
+  // 분배금(배당) — ISA 대상 자산 전부
+  const isaDividend = dividends
+    .filter((d) => inPeriod(d.date) && ISA_ELIGIBLE_KEYS.includes(d.asset_key))
+    .reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
 
-  // ISA 총 순이익 = 매매 순이익 + 배당
-  const isaTotalProfit = isaNetGain + isaDividend;
+  // ISA 총 순이익 = 매매 순손익 + 배당 (손실이 더 크면 0)
+  const isaTotalProfit = Math.max(0, isaNetGain + isaDividend);
 
   // ISA 비과세/과세 계산
   const taxFreeLimit = ISA_TAX_FREE_LIMIT[isaType];
@@ -256,16 +339,8 @@ export function calculateTaxSimulation(
   );
   const isaSavings = Math.max(0, taxWithoutIsa - isaTax);
 
-  // ─── ISA 밖 (BTC 등) ───
-  const btcGain = NON_ISA_KEYS.reduce(
-    (sum, key) => sum + Math.max(0, realizedPnl[key] ?? 0),
-    0,
-  );
-  // 가상자산 양도세는 2027년 귀속분부터 시행 — 그 전에는 과세 없음
-  const cryptoTaxActive = targetYear >= CRYPTO_TAX_EFFECTIVE_YEAR;
-  const btcTaxBase = cryptoTaxActive
-    ? Math.max(0, btcGain - FOREIGN_TAX_EXEMPTION)
-    : 0;
+  // ─── ISA 밖 (BTC 등) — 연도별 ───
+  const { btcGain, btcTaxBase } = cryptoTaxBase(records, year);
   const btcTax = Math.round(btcTaxBase * FOREIGN_TAX_RATE);
 
   return {
@@ -282,6 +357,62 @@ export function calculateTaxSimulation(
     btcTax,
     totalEstimatedTax: isaTax + btcTax,
     isaSavings,
+  };
+}
+
+/** ISA 만기 정산 추정 (지금 전부 정리한다면) */
+export type IsaProjection = {
+  /** 실현분: 해외지수·금 ETF 실현 순손익 + 분배금 (음수 가능) */
+  realizedTaxable: number;
+  /** 미실현분: 해외지수·금 ETF (현재가 − 평균단가) × 보유수량 합 (음수 가능) */
+  unrealizedTaxable: number;
+  /** 실현 + 미실현 순이익 (0 이상) */
+  totalTaxable: number;
+  taxFreeLimit: number;
+  /** 남은 비과세 한도 */
+  taxFreeRemaining: number;
+  /** 지금 전부 정리하면 낼 세금 (한도 초과분 × 9.9%) */
+  estimatedTaxIfRealizedNow: number;
+};
+
+/**
+ * ISA 만기 정산 추정 — 실현 손익(누적)에 보유분 평가손익을 더해 통산한다.
+ * 평균단가는 calculateRealizedPnl과 같은 이동평균법.
+ * 현재가가 없는(0 이하) 종목은 미실현분에서 빠진다.
+ */
+export function calculateIsaProjection(
+  records: InvestmentRecord[],
+  dividends: DividendRecord[],
+  livePrices: Record<string, number>,
+  isaType: IsaType = 'common',
+): IsaProjection {
+  const realized = calculateTaxSimulation(records, dividends, undefined, isaType);
+  const realizedTaxable = realized.isaNetGain + realized.isaDividend;
+
+  const avgCost = averageBuyCosts(records);
+  const netQty = (key: string): number =>
+    records
+      .filter((r) => r.asset_key === key)
+      .reduce((sum, r) => sum + (r.type === 'sell' ? -1 : 1) * getRecordQty(r), 0);
+
+  const unrealizedTaxable = TAXABLE_GAIN_KEYS.reduce((sum, key) => {
+    const price = Number(livePrices[key]);
+    const qty = netQty(key);
+    if (!Number.isFinite(price) || price <= 0 || qty <= 0) return sum;
+    return sum + (price - (avgCost[key] ?? 0)) * qty;
+  }, 0);
+
+  const totalTaxable = Math.max(0, realizedTaxable + unrealizedTaxable);
+  const taxFreeLimit = ISA_TAX_FREE_LIMIT[isaType];
+  return {
+    realizedTaxable,
+    unrealizedTaxable,
+    totalTaxable,
+    taxFreeLimit,
+    taxFreeRemaining: Math.max(0, taxFreeLimit - totalTaxable),
+    estimatedTaxIfRealizedNow: Math.round(
+      Math.max(0, totalTaxable - taxFreeLimit) * ISA_SEPARATED_TAX_RATE,
+    ),
   };
 }
 
@@ -406,166 +537,185 @@ export function calculateMDD(values: number[]): { mdd: number; peakIdx: number; 
 
 // ─── 벤치마크 비교 시뮬레이션 ───
 
-/** 벤치마크 정의 */
-export const BENCHMARKS = [
-  { key: 'bm_snp',     label: 'S&P500 올인',        priceKey: 'snp',     color: '#3b82f6' },
-  { key: 'bm_nasdaq',  label: '나스닥100 올인',     priceKey: 'nasdaq',  color: '#8b5cf6' },
-  { key: 'bm_kodex',   label: 'KODEX200 올인',      priceKey: 'kodex200', color: '#ef4444' },
-  { key: 'bm_gold',    label: '금 올인',            priceKey: 'gold',    color: '#f59e0b' },
-  { key: 'bm_6040',    label: 'S&P 60 / 금 40',    priceKey: '__6040__', color: '#10b981' },
-] as const;
+/** 벤치마크 정의 — weights: 시세 키 → 비중 (합 1) */
+export type BenchmarkDef = {
+  key: string;
+  label: string;
+  weights: Readonly<Record<string, number>>;
+  color: string;
+};
+
+/**
+ * 벤치마크: S&P500만 / S&P500 70 + 나스닥100 30.
+ * 나스닥100은 상장 이력이 가장 긴 TIGER 미국나스닥100(133690, 'nasdaq') 시세를 쓴다.
+ */
+export const BENCHMARKS: readonly BenchmarkDef[] = [
+  { key: 'bm_snp', label: 'S&P500만', weights: { snp: 1 }, color: '#3b82f6' },
+  { key: 'bm_7030', label: 'S&P500 70 / 나스닥100 30', weights: { snp: 0.7, nasdaq: 0.3 }, color: '#8b5cf6' },
+];
+
+type PriceMap = Readonly<Record<string, number>>;
+
+/** 0 초과 유한 가격만 남긴 맵 */
+function validPrices(source: Readonly<Record<string, unknown>>, keys: readonly string[]): Record<string, number> {
+  return Object.fromEntries(
+    keys
+      .map((k) => [k, Number(source[k])] as const)
+      .filter(([, p]) => Number.isFinite(p) && p > 0),
+  );
+}
+
+/**
+ * 벤치마크 가상 계좌 — 입금액을 비중대로 나눠 산다.
+ * 그 시점 가격이 없는 종목 몫은 현금으로 들고 있다가(액면 평가) 가격이 생기는 첫 달에 산다.
+ */
+function createBenchmarkBook(weights: PriceMap) {
+  const keys = Object.keys(weights);
+  const units = new Map<string, number>();
+  const pending = new Map<string, number>();
+  return {
+    deposit(amount: number): void {
+      for (const k of keys) pending.set(k, (pending.get(k) ?? 0) + amount * weights[k]);
+    },
+    /** 이번 시점 가격으로 대기 현금 매수 (가격 없는 종목은 계속 대기) */
+    settle(prices: PriceMap): void {
+      for (const k of keys) {
+        const cash = pending.get(k) ?? 0;
+        const p = prices[k] ?? 0;
+        if (cash > 0 && p > 0) {
+          units.set(k, (units.get(k) ?? 0) + cash / p);
+          pending.set(k, 0);
+        }
+      }
+    },
+    /** 평가액 = 보유수량 × 마지막 유효 가격 + 대기 현금 */
+    value(markPrices: PriceMap): number {
+      return keys.reduce(
+        (sum, k) => sum + (units.get(k) ?? 0) * (markPrices[k] ?? 0) + (pending.get(k) ?? 0),
+        0,
+      );
+    },
+  };
+}
+
+/** 누적 원금(principal) 차분 → 월별 입금액 (원금이 늘어난 달만) */
+function monthlyDeposits(sortedChart: readonly { date: string; principal: number }[]): Map<string, number> {
+  const deposits = new Map<string, number>();
+  let prevPrincipal = 0;
+  for (const ch of sortedChart) {
+    const monthDeposit = ch.principal - prevPrincipal;
+    if (monthDeposit > 0) deposits.set(ch.date.substring(0, 7), monthDeposit);
+    prevPrincipal = ch.principal;
+  }
+  return deposits;
+}
+
+/** 내 포트폴리오 + 벤치마크 최종 성과 (수익률 높은 순) */
+function summarizeBenchmarks(lastPoint: BenchmarkPoint | undefined): BenchmarkResult[] {
+  const totalPrincipal = Number(lastPoint?.principal ?? 0);
+  const totalReturnOf = (v: number): number =>
+    totalPrincipal > 0 ? (v / totalPrincipal - 1) * 100 : 0;
+  const myValue = Number(lastPoint?.myPortfolio ?? 0);
+  const results: BenchmarkResult[] = [
+    { key: 'myPortfolio', label: '내 포트폴리오', finalValue: myValue, totalReturn: totalReturnOf(myValue), color: '#0f172a' },
+    ...BENCHMARKS.map((bm) => {
+      const v = Number(lastPoint?.[bm.key] ?? 0);
+      return { key: bm.key, label: bm.label, finalValue: v, totalReturn: totalReturnOf(v), color: bm.color };
+    }),
+  ];
+  return results.sort((a, b) => b.totalReturn - a.totalReturn);
+}
 
 /**
  * 벤치마크 대비 수익률 비교 계산
  *
- * 핵심: "내가 실제로 매수한 금액을, 같은 시점에 [벤치마크]만 샀다면?"
- * - 실제 investment_records의 매수 금액·시점 사용 (입금액 X, 실제 투자액 O)
- * - 벤치마크 매수 시세는 해당 월 시세 사용
+ * 핵심: "같은 달에 같은 금액을 [벤치마크]에 넣었다면?"
+ * - 입금 시점·금액: chartHistory 누적 원금(principal)의 월별 증가분
+ * - 매수 시세: 해당 월 시세, 히스토리에 없는 달은 실시간 시세
+ * - 벤치마크 종목 가격이 없는 달의 입금은 현금으로 대기 → 첫 유효 가격 달에 매수
  *
- * @param records - 실제 매수/매도 기록 (investment_records)
+ * @param _records - 미사용 (하위호환)
  * @param chartHistory - 내 포트폴리오 월별 가치 [{date, principal, investment}]
- * @param marketHistory - 전체 월별 시세 [{d, snp, nasdaq, kodex200, gold, ...}]
+ * @param marketHistory - 전체 월별 시세 [{d, snp, nasdaq, ...}]
  * @param livePrices - 실시간 시세
+ * @param now - 기준 시각 (이번 달은 KST로 판정)
  */
 export function calculateBenchmarkComparison(
   _records: InvestmentRecord[],
   chartHistory: { date: string; principal: number; investment: number }[],
   marketHistory: Record<string, unknown>[],
   livePrices: Record<string, number>,
+  now: Date = new Date(),
 ): { points: BenchmarkPoint[]; results: BenchmarkResult[] } {
   if (chartHistory.length === 0 || marketHistory.length === 0) {
     return { points: [], results: [] };
   }
 
-  // 월별 시세를 date 기준 맵으로 변환
-  const priceByMonth: Record<string, Record<string, number>> = {};
-  for (const row of marketHistory) {
-    const d = String(row.d ?? '');
-    if (!d) continue;
-    const prices: Record<string, number> = {};
-    for (const bm of BENCHMARKS) {
-      if (bm.priceKey === '__6040__') continue;
-      prices[bm.priceKey] = Number(row[bm.priceKey]) || 0;
-    }
-    priceByMonth[d] = prices;
-  }
-
-  // 입금액 기준 월별 투입액 (chartHistory의 principal 차분)
-  // principal은 누적 입금액이므로, 이전 달과의 차이가 해당 월 입금액
-  const depositByMonth: Record<string, number> = {};
+  const priceKeys = Array.from(new Set(BENCHMARKS.flatMap((bm) => Object.keys(bm.weights))));
+  const priceByMonth = new Map(
+    marketHistory
+      .map((row) => [String(row.d ?? ''), validPrices(row, priceKeys)] as const)
+      .filter(([d]) => d.length > 0),
+  );
   const sortedChart = [...chartHistory].sort((a, b) => a.date.localeCompare(b.date));
-  let prevPrincipal = 0;
-  for (const ch of sortedChart) {
-    const ym = ch.date.substring(0, 7);
-    const monthDeposit = ch.principal - prevPrincipal;
-    if (monthDeposit > 0) {
-      depositByMonth[ym] = monthDeposit;
-    }
-    prevPrincipal = ch.principal;
-  }
+  const depositByMonth = monthlyDeposits(sortedChart);
+  const myDataByMonth = new Map(chartHistory.map((ch) => [ch.date, ch]));
 
-  // 내 포트폴리오 데이터를 date 기준 맵으로 변환
-  const myDataByMonth: Record<string, { principal: number; investment: number }> = {};
-  for (const ch of chartHistory) {
-    myDataByMonth[ch.date] = { principal: ch.principal, investment: ch.investment };
-  }
-
-  // 차트 범위: chartHistory 시작점부터 (그래프 모양 유지)
-  const allMonths = marketHistory
-    .map((row) => String(row.d ?? ''))
-    .filter((d) => d.length >= 7)
-    .sort();
-  const firstDepositMonth = Object.keys(depositByMonth).sort()[0];
+  // 차트 범위: chartHistory 시작점(또는 첫 입금 월 중 빠른 쪽)부터
+  const allMonths = Array.from(priceByMonth.keys()).filter((d) => d.length >= 7).sort();
+  const firstDepositMonth = Array.from(depositByMonth.keys()).sort()[0];
   if (!firstDepositMonth || allMonths.length === 0) {
     return { points: [], results: [] };
   }
   const chartStartMonth = sortedChart[0].date.substring(0, 7);
-  const startMonth = chartStartMonth < firstDepositMonth
-    ? chartStartMonth
-    : firstDepositMonth;
+  const startMonth = chartStartMonth < firstDepositMonth ? chartStartMonth : firstDepositMonth;
   const relevantMonths = allMonths.filter((m) => m.substring(0, 7) >= startMonth);
 
-  // 벤치마크별 누적 보유수량 추적
-  const holdings: Record<string, number> = {};
-  let holdings6040Snp = 0;
-  let holdings6040Gold = 0;
-  for (const bm of BENCHMARKS) {
-    if (bm.priceKey !== '__6040__') holdings[bm.key] = 0;
-  }
+  const books = BENCHMARKS.map((bm) => createBenchmarkBook(bm.weights));
+  let markPrices: Record<string, number> = {}; // 종목별 마지막 유효 가격 (평가용)
+  let cumulativeDeposit = 0;
+  const bookValues = (): Record<string, number> =>
+    Object.fromEntries(BENCHMARKS.map((bm, i) => [bm.key, books[i].value(markPrices)]));
 
-  let cumulativeDeposit = 0; // 누적 입금액
   const points: BenchmarkPoint[] = [];
-
   for (const ym of relevantMonths) {
-    const deposit = depositByMonth[ym] ?? 0;
+    const deposit = depositByMonth.get(ym) ?? 0;
     cumulativeDeposit += deposit;
-    const monthPrices = priceByMonth[ym];
-
-    // 이번 달 입금액으로 벤치마크 매수
-    if (deposit > 0 && monthPrices) {
-      for (const bm of BENCHMARKS) {
-        if (bm.priceKey === '__6040__') {
-          const snpPrice = monthPrices['snp'] || 0;
-          const goldPrice = monthPrices['gold'] || 0;
-          if (snpPrice > 0) holdings6040Snp += (deposit * 0.6) / snpPrice;
-          if (goldPrice > 0) holdings6040Gold += (deposit * 0.4) / goldPrice;
-        } else {
-          const price = monthPrices[bm.priceKey] || 0;
-          if (price > 0) holdings[bm.key] += deposit / price;
-        }
-      }
+    const monthPrices = priceByMonth.get(ym) ?? {};
+    markPrices = { ...markPrices, ...monthPrices };
+    for (const book of books) {
+      if (deposit > 0) book.deposit(deposit);
+      book.settle(monthPrices);
     }
-
-    // 내 포트폴리오 월별 가치
-    const myData = myDataByMonth[ym];
-    const point: BenchmarkPoint = {
+    const myData = myDataByMonth.get(ym);
+    points.push({
       date: ym,
       myPortfolio: myData?.investment ?? (cumulativeDeposit > 0 ? cumulativeDeposit : 0),
       principal: myData?.principal ?? cumulativeDeposit,
-    };
-
-    for (const bm of BENCHMARKS) {
-      if (bm.priceKey === '__6040__') {
-        const snpP = monthPrices?.['snp'] || 0;
-        const goldP = monthPrices?.['gold'] || 0;
-        point[bm.key] = holdings6040Snp * snpP + holdings6040Gold * goldP;
-      } else {
-        const price = monthPrices?.[bm.priceKey] || 0;
-        point[bm.key] = holdings[bm.key] * price;
-      }
-    }
-
-    points.push(point);
+      ...bookValues(),
+    });
   }
 
-  // ── 히스토리에 없는 월의 잔여 입금 처리 (실시간 시세로 매수) ──
+  // ── 히스토리에 없는 월의 입금 (실시간 시세로 매수, 없으면 대기 현금) ──
+  const live = validPrices(livePrices ?? {}, priceKeys);
   const lastHistoryMonth = relevantMonths[relevantMonths.length - 1] ?? '';
-  const remainingMonths = Object.keys(depositByMonth)
+  const remainingMonths = Array.from(depositByMonth.keys())
     .filter((ym) => ym > lastHistoryMonth.substring(0, 7))
     .sort();
-
   for (const ym of remainingMonths) {
-    const deposit = depositByMonth[ym] ?? 0;
-    if (deposit <= 0) continue;
+    const deposit = depositByMonth.get(ym) ?? 0;
     cumulativeDeposit += deposit;
-    if (livePrices) {
-      for (const bm of BENCHMARKS) {
-        if (bm.priceKey === '__6040__') {
-          const snpP = livePrices['snp'] || 0;
-          const goldP = livePrices['gold'] || 0;
-          if (snpP > 0) holdings6040Snp += (deposit * 0.6) / snpP;
-          if (goldP > 0) holdings6040Gold += (deposit * 0.4) / goldP;
-        } else {
-          const price = livePrices[bm.priceKey] || 0;
-          if (price > 0) holdings[bm.key] += deposit / price;
-        }
-      }
+    for (const book of books) {
+      book.deposit(deposit);
+      book.settle(live);
     }
   }
 
   // ── 마지막 포인트: 실시간 시세 기준 "오늘" ──
   if (livePrices) {
-    const currentYM = new Date().toISOString().slice(0, 7);
+    markPrices = { ...markPrices, ...live };
+    for (const book of books) book.settle(live);
+    const currentYM = currentYearMonth(now);
     const lastChart = sortedChart[sortedChart.length - 1];
     // 총 입금액 = chartHistory 마지막 principal
     const totalDeposit = lastChart?.principal ?? cumulativeDeposit;
@@ -573,18 +723,8 @@ export function calculateBenchmarkComparison(
       date: currentYM,
       myPortfolio: lastChart?.investment ?? totalDeposit,
       principal: totalDeposit,
+      ...bookValues(),
     };
-
-    for (const bm of BENCHMARKS) {
-      if (bm.priceKey === '__6040__') {
-        todayPoint[bm.key] = holdings6040Snp * (livePrices['snp'] || 0)
-          + holdings6040Gold * (livePrices['gold'] || 0);
-      } else {
-        const liveP = livePrices[bm.priceKey] || 0;
-        todayPoint[bm.key] = liveP > 0 ? holdings[bm.key] * liveP : 0;
-      }
-    }
-
     if (points.length > 0 && points[points.length - 1].date === currentYM) {
       points[points.length - 1] = todayPoint;
     } else {
@@ -592,380 +732,5 @@ export function calculateBenchmarkComparison(
     }
   }
 
-  // 최종 성과 요약
-  const lastPoint = points[points.length - 1];
-  const totalPrincipal = lastPoint?.principal ?? 0;
-
-  const results: BenchmarkResult[] = [
-    {
-      key: 'myPortfolio',
-      label: '내 포트폴리오',
-      finalValue: Number(lastPoint?.myPortfolio ?? 0),
-      totalReturn: totalPrincipal > 0
-        ? (Number(lastPoint?.myPortfolio ?? 0) / totalPrincipal - 1) * 100
-        : 0,
-      color: '#0f172a',
-    },
-    ...BENCHMARKS.map((bm) => ({
-      key: bm.key,
-      label: bm.label,
-      finalValue: Number(lastPoint?.[bm.key] ?? 0),
-      totalReturn: totalPrincipal > 0
-        ? (Number(lastPoint?.[bm.key] ?? 0) / totalPrincipal - 1) * 100
-        : 0,
-      color: bm.color,
-    })),
-  ];
-
-  // 수익률 높은 순 정렬
-  results.sort((a, b) => b.totalReturn - a.totalReturn);
-
-  return { points, results };
-}
-
-// ─── 매수 시그널 시스템 (백테스팅 기반) ───
-
-/** 시그널 레벨별 설정 */
-const SIGNAL_LEVELS: { level: SignalLevel; min: number; label: string; multiplier: number }[] = [
-  { level: 'all_in',      min: 76, label: '🔴 올인',     multiplier: 2.5 },
-  { level: 'strong_buy',  min: 56, label: '🟠 적극매수', multiplier: 1.8 },
-  { level: 'opportunity', min: 36, label: '🟡 매수기회', multiplier: 1.3 },
-  { level: 'watch',       min: 16, label: '🔵 관심',     multiplier: 1.0 },
-  { level: 'normal',      min: 0,  label: '🟢 정상',     multiplier: 1.0 },
-];
-
-/** 점수 → 시그널 레벨 변환 */
-function scoreToLevel(score: number): { level: SignalLevel; multiplier: number } {
-  const clamped = Math.max(0, Math.min(100, score));
-  for (const sl of SIGNAL_LEVELS) {
-    if (clamped >= sl.min) return { level: sl.level, multiplier: sl.multiplier };
-  }
-  return { level: 'normal', multiplier: 1.0 };
-}
-
-/** 시그널 레벨 한국어 라벨 */
-export function getSignalLabel(level: SignalLevel): string {
-  return SIGNAL_LEVELS.find((sl) => sl.level === level)?.label ?? '🟢 정상';
-}
-
-// ─── 자산별 위험 프로파일 ───
-//
-// 30년 애널리스트 관점: 같은 -20%라도 자산마다 의미가 완전히 다르다.
-// - S&P500 -20% = 역사적 대폭락 (2008, 2020) → 강력 매수 시그널
-// - 비트코인 -20% = 흔한 조정 (연 3-4회 발생) → 아직 관망
-// - 금 -10% = 안전자산 치고 큰 하락 → 의미있는 시그널
-//
-// 각 자산의 역사적 변동성에 맞게 임계값을 다르게 설정한다.
-
-type AssetRiskCategory = 'safe_haven' | 'standard' | 'growth' | 'single_stock' | 'crypto';
-
-type RiskProfile = {
-  category: AssetRiskCategory;
-  label: string;
-  /** 낙폭 임계값: [최소%, 점수][] — 큰 것부터 매칭 */
-  drawdownTiers: [number, number, string][];
-  /** MA 괴리율 기준 배수 (1.0 = 기본, 2.0 = 2배 넓은 기준) */
-  maScale: number;
-  /** 연속 하락 의미 있는 최소 개월수 */
-  momentumMinMonths: number;
-  /** 최대 점수 상한 (자동으로 이 이상 안 감) */
-  scoreCap: number;
-};
-
-const RISK_PROFILES: Record<AssetRiskCategory, RiskProfile> = {
-  // 금: 변동성 낮은 안전자산 → 작은 하락도 의미 크다
-  safe_haven: {
-    category: 'safe_haven',
-    label: '안전자산',
-    drawdownTiers: [
-      [25, 55, '대폭락'],
-      [18, 45, '급락'],
-      [12, 35, '조정'],
-      [8,  25, ''],
-      [3,  10, ''],
-    ],
-    maScale: 0.7,
-    momentumMinMonths: 2,
-    scoreCap: 85,
-  },
-  // S&P500, KODEX200: 지수 ETF → 평균회귀 강함, 기본 기준
-  standard: {
-    category: 'standard',
-    label: '지수 ETF',
-    drawdownTiers: [
-      [30, 55, '대폭락'],
-      [20, 45, '급락'],
-      [15, 35, '조정'],
-      [10, 25, ''],
-      [5,  10, ''],
-    ],
-    maScale: 1.0,
-    momentumMinMonths: 3,
-    scoreCap: 100,
-  },
-  // 나스닥, 테크TOP10, 반도체, 코스닥: 성장주/테마 → 변동 큼
-  // [공격적 프로파일 반영] AI/테크 강세 확신 투자자: 조정 단계를 더 적극적 매수 기회로 인식
-  growth: {
-    category: 'growth',
-    label: '성장/테마',
-    drawdownTiers: [
-      [30, 60, '대폭락'],      // 기존 35 → 30 (하향), 점수 55 → 60 (상향)
-      [22, 45, '급락'],        // 기존 25 → 22
-      [15, 35, '조정'],        // 기존 18 → 15, 점수 30 → 35
-      [10, 25, ''],            // 기존 12 → 10, 점수 20 → 25
-      [5,  12, ''],            // 기존 7 → 5
-    ],
-    maScale: 1.2,              // 기존 1.3 → 1.2 (조금 더 민감하게)
-    momentumMinMonths: 2,      // 기존 3 → 2 (AI 급락장 빠르게 포착)
-    scoreCap: 100,
-  },
-  // 삼성전자: 한국 반도체 대장주 — AI 사이클 + 국내 대표주 프리미엄
-  // [공격적 프로파일 반영] 미래 IT/AI 가치 고평가 → 삼전도 성장주 수준 기회
-  single_stock: {
-    category: 'single_stock',
-    label: '개별종목',
-    drawdownTiers: [
-      [35, 60, '대폭락'],      // 기존 40 → 35
-      [25, 45, '급락'],        // 기존 30 → 25
-      [18, 35, '조정'],        // 기존 20 → 18, 점수 30 → 35
-      [10, 22, ''],            // 기존 12 → 10
-      [5,  12, ''],            // 기존 7 → 5
-    ],
-    maScale: 1.3,              // 기존 1.5 → 1.3
-    momentumMinMonths: 2,      // 기존 3 → 2
-    scoreCap: 95,              // 기존 90 → 95 (삼전 대장주 프리미엄)
-  },
-  // 비트코인: 극단적 변동성 → 기준을 대폭 높여야 함
-  crypto: {
-    category: 'crypto',
-    label: '암호화폐',
-    drawdownTiers: [
-      [65, 55, '대폭락'],
-      [50, 40, '급락'],
-      [35, 30, '조정'],
-      [25, 20, ''],
-      [15, 10, ''],
-    ],
-    maScale: 2.5,
-    momentumMinMonths: 4,
-    scoreCap: 75, // 암호화폐는 올인 불가 — 최대 적극매수까지만
-  },
-};
-
-/** 자산 키 → 위험 프로파일 매핑 */
-const ASSET_RISK_MAP: Record<string, AssetRiskCategory> = {
-  snp: 'standard',
-  kodex200: 'standard',
-  nasdaq: 'growth',
-  tech10: 'growth',
-  kodex_kosdaq150: 'growth',
-  semiconductor_top10: 'growth',
-  samsung: 'single_stock',
-  gold: 'safe_haven',
-  btc: 'crypto',
-};
-
-/** 자산의 위험 프로파일 조회 */
-export function getAssetRiskProfile(key: string): RiskProfile {
-  const category = ASSET_RISK_MAP[key] ?? 'standard';
-  return RISK_PROFILES[category];
-}
-
-/**
- * 개별 자산 시그널 계산 (자산별 위험 프로파일 반영)
- *
- * @param prices - 월별 가격 배열 (오래된 것 → 최신 순서, 최소 3개월)
- * @param currentPrice - 실시간 현재가
- * @param key - 자산 키
- *
- * 채점 기준 (백테스팅 검증, 자산별 차등 적용):
- * 1. 고점 대비 낙폭 (Drawdown): 0-55점 — 자산별 임계값 상이
- * 2. 이동평균 괴리: 0-25점 — maScale로 기준 조정
- * 3. 연속 하락 모멘텀: 0-15점 — momentumMinMonths로 기준 조정
- * 4. 점수 상한: scoreCap으로 제한 (BTC는 75점 상한)
- */
-export function calculateAssetSignal(
-  prices: number[],
-  currentPrice: number,
-  key: string,
-): AssetSignal {
-  const profile = getAssetRiskProfile(key);
-  const reasons: string[] = [];
-
-  // ── 1. 고점 대비 낙폭 (최근 12개월 고점 기준) ──
-  const recentPrices = prices.slice(-12);
-  const peak12m = Math.max(...recentPrices, currentPrice);
-  const drawdownFromPeak = peak12m > 0
-    ? ((peak12m - currentPrice) / peak12m) * 100
-    : 0;
-
-  let drawdownScore = 0;
-  for (const [threshold, score, label] of profile.drawdownTiers) {
-    if (drawdownFromPeak >= threshold) {
-      drawdownScore = score;
-      if (label) {
-        reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}% (${label})`);
-      } else if (drawdownFromPeak >= 10) {
-        reasons.push(`고점 대비 -${drawdownFromPeak.toFixed(1)}%`);
-      }
-      break;
-    }
-  }
-
-  // ── 2. 이동평균 괴리율 (maScale로 자산별 기준 조정) ──
-  const s = profile.maScale; // 기준 배수
-  const ma6Prices = prices.slice(-6);
-  const ma6 = ma6Prices.length >= 3
-    ? ma6Prices.reduce((sum, p) => sum + p, 0) / ma6Prices.length
-    : 0;
-  const maBelowPct6 = ma6 > 0 ? ((ma6 - currentPrice) / ma6) * 100 : 0;
-
-  const ma12Prices = prices.slice(-12);
-  const ma12 = ma12Prices.length >= 6
-    ? ma12Prices.reduce((sum, p) => sum + p, 0) / ma12Prices.length
-    : 0;
-  const maBelowPct12 = ma12 > 0 ? ((ma12 - currentPrice) / ma12) * 100 : 0;
-
-  let maScore = 0;
-  // 6개월 MA 하회 (기준: 5% × maScale, 10% × maScale)
-  if (maBelowPct6 > 10 * s) { maScore += 10; reasons.push(`6개월 평균 대비 -${maBelowPct6.toFixed(1)}% 하회`); }
-  else if (maBelowPct6 > 5 * s) { maScore += 7; }
-  else if (maBelowPct6 > 0) { maScore += 3; }
-
-  // 12개월 MA 하회
-  if (maBelowPct12 > 10 * s) { maScore += 15; reasons.push(`12개월 평균 대비 -${maBelowPct12.toFixed(1)}% 하회`); }
-  else if (maBelowPct12 > 5 * s) { maScore += 10; reasons.push('12개월 평균 하회'); }
-  else if (maBelowPct12 > 0) { maScore += 5; }
-
-  // ── 3. 연속 하락 개월수 (자산별 최소 기준 적용) ──
-  let consecutiveDeclines = 0;
-  if (prices.length > 0 && currentPrice < prices[prices.length - 1]) {
-    consecutiveDeclines++;
-  }
-  for (let i = prices.length - 1; i >= 1; i--) {
-    if (prices[i] < prices[i - 1]) consecutiveDeclines++;
-    else break;
-  }
-
-  let momentumScore = 0;
-  const minM = profile.momentumMinMonths;
-  if (consecutiveDeclines >= minM + 1) {
-    momentumScore = 15;
-    reasons.push(`${consecutiveDeclines}개월 연속 하락 (과매도)`);
-  } else if (consecutiveDeclines >= minM) {
-    momentumScore = 10;
-    reasons.push(`${consecutiveDeclines}개월 연속 하락`);
-  } else if (consecutiveDeclines >= minM - 1 && consecutiveDeclines >= 2) {
-    momentumScore = 5;
-  }
-
-  // ── AI/테크 컨빅션 보너스 ──
-  // 사용자 성향: 현업 개발자, AI/IT 미래 가치 높게 평가
-  // 테크·반도체·나스닥 자산의 조정 시 컨빅션 기반 +5점 (최대 scoreCap까지)
-  const techConvictionKeys = ['tech10', 'nasdaq', 'semiconductor_top10', 'samsung'];
-  let convictionBonus = 0;
-  if (techConvictionKeys.includes(key) && drawdownFromPeak >= 10) {
-    convictionBonus = 5;
-    reasons.push('AI/테크 컨빅션 보너스 +5');
-  }
-
-  // ── 총점 (scoreCap으로 자산별 상한 적용) ──
-  const rawScore = drawdownScore + maScore + momentumScore + convictionBonus;
-  const totalScore = Math.min(profile.scoreCap, rawScore);
-  const { level, multiplier } = scoreToLevel(totalScore);
-
-  // 프로파일 정보를 이유에 추가 (상한 적용 시)
-  if (rawScore > profile.scoreCap) {
-    reasons.push(`${profile.label} 상한 ${profile.scoreCap}점 적용 (원점수 ${rawScore})`);
-  }
-
-  return {
-    key,
-    score: totalScore,
-    level,
-    multiplier,
-    drawdownFromPeak,
-    drawdownScore,
-    maBelowPct6,
-    maBelowPct12,
-    maScore,
-    consecutiveDeclines,
-    momentumScore,
-    reasons,
-  };
-}
-
-/**
- * 전체 시장 시그널 계산
- *
- * @param marketHistory - 월별 시세 배열 [{d: 'YYYY-MM', tech10: 가격, ...}]
- * @param livePrices - 실시간 시세 {tech10: 가격, ...}
- * @param assetKeys - 분석 대상 자산 키 (cash 제외)
- */
-export function calculateMarketSignal(
-  marketHistory: Record<string, unknown>[],
-  livePrices: Record<string, number>,
-  assetKeys: string[],
-): MarketSignal {
-  const assetSignals: Record<string, AssetSignal> = {};
-  const reasons: string[] = [];
-
-  // 현재 미완료 월 제거 (Yahoo 월봉에 이번 달 미완료 데이터 포함됨)
-  // → 완료된 월만 사용하고, 이번 달은 livePrices(실시간)로 대체
-  const currentYM = new Date().toISOString().slice(0, 7);
-  const completedHistory = marketHistory.filter(
-    (row) => String(row.d ?? '') < currentYM,
-  );
-
-  // 자산별 시그널 계산
-  for (const key of assetKeys) {
-    if (key === 'cash') continue;
-    const monthlyPrices = completedHistory
-      .map((row) => Number(row[key]) || 0)
-      .filter((p) => p > 0);
-
-    const currentPrice = livePrices[key] ?? 0;
-    if (monthlyPrices.length < 3 || currentPrice <= 0) continue;
-
-    assetSignals[key] = calculateAssetSignal(monthlyPrices, currentPrice, key);
-  }
-
-  // 동시 하락 상관관계 보너스 (시스템 리스크 = 최고의 기회)
-  const signalCount = Object.values(assetSignals)
-    .filter((s) => s.level === 'opportunity' || s.level === 'strong_buy' || s.level === 'all_in')
-    .length;
-
-  let correlationScore = 0;
-  if (signalCount >= 5) {
-    correlationScore = 10;
-    reasons.push(`${signalCount}개 자산 동시 매수 시그널 — 시스템 리스크 (역사적 최적 매수 구간)`);
-  } else if (signalCount >= 3) {
-    correlationScore = 5;
-    reasons.push(`${signalCount}개 자산 동시 매수 시그널`);
-  }
-
-  // 전체 점수: 자산별 평균 + 상관관계 보너스
-  const allScores = Object.values(assetSignals).map((s) => s.score);
-  const avgScore = allScores.length > 0
-    ? allScores.reduce((s, v) => s + v, 0) / allScores.length
-    : 0;
-  const overallScore = Math.min(100, Math.round(avgScore + correlationScore));
-  const { level: overallLevel, multiplier: overallMultiplier } = scoreToLevel(overallScore);
-
-  // 최고 시그널 자산 안내
-  const topSignal = Object.values(assetSignals)
-    .sort((a, b) => b.score - a.score)[0];
-  if (topSignal && topSignal.score >= 36) {
-    reasons.push(`최강 시그널: ${topSignal.key} (${topSignal.score}점)`);
-  }
-
-  return {
-    overallScore,
-    overallLevel,
-    overallMultiplier,
-    assetSignals,
-    correlationScore,
-    signalCount,
-    reasons,
-  };
+  return { points, results: summarizeBenchmarks(points[points.length - 1]) };
 }

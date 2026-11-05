@@ -1,45 +1,46 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Shield, AlertTriangle, X } from 'lucide-react';
-import type { IpsViolation } from '../hooks/useIpsRules';
+import type { PolicyViolation } from '@/lib/ips';
+
+/** 진행 버튼이 켜지기까지 기다리는 시간 (초) */
+const COOLDOWN_SECONDS = 30;
 
 type IpsViolationModalProps = {
   open: boolean;
-  violations: IpsViolation[];
-  allRules: string[];
+  violations: PolicyViolation[];
+  /** 내가 적어 둔 투자 규칙 문구 */
+  policyRules: string[];
   onProceed: () => void;
   onCancel: () => void;
 };
 
 /**
- * 매도 시도가 IPS 규칙을 위반할 때 띄우는 경고 모달.
- * - 규칙 원문 + 위반 사유 표시
- * - "그럼에도 진행하겠습니다" 체크박스 + 재확인
- * - 30초 카운트다운으로 즉흥 결정 방지
+ * 매도 시도가 IPS 점검(lib/ips)에 걸릴 때 띄우는 경고 모달.
+ * - 위반 내용 + 내가 적어 둔 규칙 문구 표시
+ * - "그럼에도 진행하겠습니다" 체크박스 + 30초 카운트다운으로 즉흥 결정 방지
+ * 열 때마다 새로 마운트해 체크·카운트다운을 초기화한다.
  */
-export function IpsViolationModal({
-  open,
+export function IpsViolationModal({ open, ...props }: IpsViolationModalProps) {
+  if (!open) return null;
+  return <IpsViolationModalBody {...props} />;
+}
+
+function IpsViolationModalBody({
   violations,
-  allRules,
+  policyRules,
   onProceed,
   onCancel,
-}: IpsViolationModalProps) {
+}: Omit<IpsViolationModalProps, 'open'>) {
   const [acknowledged, setAcknowledged] = useState(false);
-  const [countdown, setCountdown] = useState(30);
+  const [countdown, setCountdown] = useState(COOLDOWN_SECONDS);
 
-  React.useEffect(() => {
-    if (!open) {
-      setAcknowledged(false);
-      setCountdown(30);
-      return;
-    }
+  useEffect(() => {
     if (countdown <= 0) return;
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [open, countdown]);
-
-  if (!open) return null;
+  }, [countdown]);
 
   const hasHigh = violations.some((v) => v.severity === 'high');
   const canProceed = acknowledged && countdown <= 0;
@@ -73,13 +74,13 @@ export function IpsViolationModal({
         </div>
 
         <div className="p-5 space-y-4">
-          {/* 위반 규칙 */}
+          {/* 위반 내용 */}
           <div>
-            <p className="text-[10px] font-black text-slate-500 uppercase mb-2">위반 규칙</p>
+            <p className="text-[10px] font-black text-slate-500 uppercase mb-2">위반 내용</p>
             <div className="space-y-2">
-              {violations.map((v, i) => (
+              {violations.map((v) => (
                 <div
-                  key={i}
+                  key={v.code}
                   className={`p-3 rounded-xl border ${
                     v.severity === 'high'
                       ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-300 dark:border-rose-700'
@@ -87,10 +88,7 @@ export function IpsViolationModal({
                   }`}
                 >
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200">
-                    📜 {v.rule}
-                  </p>
-                  <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-1.5 pl-3 border-l-2 border-rose-400">
-                    {v.reason}
+                    {v.severity === 'high' ? '🚫' : '⚠️'} {v.message}
                   </p>
                 </div>
               ))}
@@ -98,19 +96,21 @@ export function IpsViolationModal({
           </div>
 
           {/* 전체 규칙 곱씹기 */}
-          <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
-            <div className="flex items-center gap-2 mb-2">
-              <Shield size={14} className="text-indigo-600" />
-              <p className="text-[11px] font-black text-indigo-800 dark:text-indigo-200 uppercase">
-                당신이 직접 세운 전체 규칙
-              </p>
+          {policyRules.length > 0 && (
+            <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield size={14} className="text-indigo-600" />
+                <p className="text-[11px] font-black text-indigo-800 dark:text-indigo-200 uppercase">
+                  당신이 직접 세운 전체 규칙
+                </p>
+              </div>
+              <ol className="list-decimal list-inside text-[11px] text-indigo-900 dark:text-indigo-100 space-y-1">
+                {policyRules.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ol>
             </div>
-            <ol className="list-decimal list-inside text-[11px] text-indigo-900 dark:text-indigo-100 space-y-1">
-              {allRules.map((r, i) => (
-                <li key={i}>{r}</li>
-              ))}
-            </ol>
-          </div>
+          )}
 
           {/* 심리학 경고 */}
           <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] text-slate-700 dark:text-slate-300 space-y-1">
@@ -134,7 +134,6 @@ export function IpsViolationModal({
               />
               <span>
                 위 규칙을 모두 읽었으며, 그럼에도 이 매도가 필요하다고 판단합니다.
-                이 결정은 내 IPS에 &quot;규칙 위반 매도&quot;로 영구 기록됩니다.
               </span>
             </label>
           </div>

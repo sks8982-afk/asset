@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { ShieldCheck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import type { InvestmentRecord, BatchSummary, MonthlyBudget } from '@/lib/types';
-import { getRecordAmount, filterBuyRecords } from '@/lib/utils';
+import { getRecordAmount, getRecordQty, filterBuyRecords } from '@/lib/utils';
 
 type DataIntegritySectionProps = {
   records: InvestmentRecord[];
@@ -56,10 +56,10 @@ export function DataIntegritySection({
       }
     }
 
-    // 2. 자산별 수량 음수 검증
+    // 2. 자산별 수량 음수 검증 (보유 현황과 같은 유효 수량 — BTC는 보정 매수액 기준)
     const byAsset: Record<string, number> = {};
     for (const r of records) {
-      const qty = Number(r.quantity) || 0;
+      const qty = getRecordQty(r) || 0;
       const sign = r.type === 'sell' ? -1 : 1;
       byAsset[r.asset_key] = (byAsset[r.asset_key] ?? 0) + sign * qty;
     }

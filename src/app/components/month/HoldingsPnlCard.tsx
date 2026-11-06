@@ -8,7 +8,7 @@ import { signToneClass } from '../ui/styles';
 
 type HoldingsPnlCardProps = {
   holdings: HoldingPnl[];
-  /** 수익률 숨기기 — 평가액·손익·수익률을 *** 로 (수량·평단은 그대로) */
+  /** 수익률 숨기기 — 손익·수익률을 *** 로 (수량·평단·투자금액은 그대로) */
   hideReturns: boolean;
 };
 
@@ -24,7 +24,7 @@ function pnlText(pnl: number, roiPct: number | null): string {
   return roiPct == null ? signedWon(pnl) : `${signedWon(pnl)} (${formatSignedPercent(roiPct)})`;
 }
 
-/** 보유 종목 — 종목별 평가액과 산 가격(평단) 대비 손익·수익률 (보유가 없으면 숨김) */
+/** 보유 종목 — 종목별 평단·투자금액과 산 가격(평단) 대비 손익·수익률 (보유가 없으면 숨김) */
 export function HoldingsPnlCard({ holdings, hideReturns }: HoldingsPnlCardProps) {
   if (holdings.length === 0) return null;
   return (
@@ -35,13 +35,14 @@ export function HoldingsPnlCard({ holdings, hideReturns }: HoldingsPnlCardProps)
             <div className="flex items-baseline justify-between gap-3">
               <p className="min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">{h.name}</p>
               <p className="shrink-0 text-sm font-bold tabular-nums text-slate-900 dark:text-slate-100">
-                {h.price > 0 ? `${maskReturn(formatNum(h.value), hideReturns)}원` : '—'}
+                <span className="mr-1 text-xs font-medium text-slate-500 dark:text-slate-400">평단</span>
+                {formatNum(h.avg)}원
               </p>
             </div>
             <div className="mt-0.5 flex items-baseline justify-between gap-3 text-xs tabular-nums">
               <p className="min-w-0 text-slate-500 dark:text-slate-400">
                 {formatDec(h.qty)}
-                {h.key === 'btc' ? '개' : '주'} · 평단 {formatNum(h.avg)}원
+                {h.key === 'btc' ? '개' : '주'} · 투자 {formatNum(h.cost)}원
               </p>
               {/* 글자처럼 1원 미만은 버려서 '0원'이 빨강·초록으로 보이지 않게 */}
               <p className={`shrink-0 font-semibold ${signToneClass(hideReturns || h.pnl == null ? null : Math.trunc(h.pnl))}`}>

@@ -87,7 +87,6 @@ export default function RealDbTower() {
             ...(marketMeta.exStale ? ['환율'] : []),
           ]}
           priceError={marketMeta.error}
-          indices={indices}
         />
 
         {/* 장부를 한 번도 못 불러왔으면 탭을 그리지 않는다 — 빈 장부(0원)처럼 보이지 않도록 위 배너만 */}
@@ -106,6 +105,7 @@ export default function RealDbTower() {
                   myAccount={myAccount}
                   dbHistory={dbHistory}
                   fullMarketHistory={fullMarketHistory}
+                  indices={indices}
                   settings={settings}
                   updateSettings={updateSettings}
                   hideReturns={hideReturns}

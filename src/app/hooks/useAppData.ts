@@ -31,7 +31,7 @@ type UseAppDataResult = {
   fullMarketHistory: MarketDataPoint[];
   livePrices: LivePrices | null;
   marketMeta: MarketMeta;
-  /** 주요 지수 (헤더 한 줄용, 없으면 null) */
+  /** 주요 지수 (이번 달 탭 위쪽에 표시, 없으면 null) */
   indices: MarketIndices | null;
   dbHistory: DbHistory;
   /** 장부를 한 번이라도 제대로 불러왔는지 */

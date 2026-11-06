@@ -1,7 +1,7 @@
 // 경식이의 자산 추적기 — Service Worker
-// 전략: 정적 자산은 캐시 우선, 동적/API는 네트워크 우선 + 오프라인 폴백
+// 전략: 페이지(HTML)·API는 네트워크 우선 + 오프라인 폴백, 정적 자산은 캐시 우선
 
-const CACHE_NAME = 'asset-tracker-v2';
+const CACHE_NAME = 'asset-tracker-v3';
 const STATIC_ASSETS = ['/', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -50,7 +50,27 @@ self.addEventListener('fetch', (event) => {
   // 외부 도메인(Supabase, Yahoo)은 그대로 통과
   if (url.origin !== self.location.origin) return;
 
-  // 정적/페이지: 캐시 우선 + 백그라운드 갱신
+  // 페이지(HTML)는 네트워크 우선 — 캐시 우선이면 새로 배포한 화면이 한 번 늦게 뜬다
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(req)
+            .then((cached) => cached || caches.match('/'))
+            .then((cached) => cached || Response.error()),
+        ),
+    );
+    return;
+  }
+
+  // 정적 자산(해시가 붙은 JS·CSS 등): 캐시 우선 + 백그라운드 갱신
   event.respondWith(
     caches.match(req).then((cached) => {
       const fetchPromise = fetch(req)

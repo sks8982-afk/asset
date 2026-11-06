@@ -118,7 +118,7 @@ describe('mergeMonthlyHistory', () => {
   });
 });
 
-describe('market indices (header line)', () => {
+describe('market indices (month tab card)', () => {
   const raw = {
     kospi: { price: 5384.27, change: -301.2, changePct: -5.2981 },
     kosdaq: { price: 912.5, change: 3, changePct: 0.33 },

@@ -54,7 +54,7 @@ export function buildMonthlySeries(
   return Array.from(byMonth, ([d, p]) => ({ d, p })).sort((a, b) => a.d.localeCompare(b.d));
 }
 
-// ─── 주요 지수 (헤더 한 줄) ───
+// ─── 주요 지수 (이번 달 탭 '내 자산' 위) ───
 
 /** 지수 한 개 — /api/market의 indices 값 */
 export type IndexQuote = { price: number; change: number; changePct: number };
@@ -80,7 +80,7 @@ export function parseIndices(raw: unknown): MarketIndices | null {
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/** 헤더에 보이는 지수 (이 순서) */
+/** 화면에 보이는 지수 (이 순서) */
 const INDEX_STRIP: readonly { key: string; label: string }[] = [
   { key: 'kospi', label: 'KOSPI' },
   { key: 'sp500', label: 'S&P500' },
@@ -98,7 +98,7 @@ export type IndexStripItem = {
   direction: 'up' | 'down' | 'flat';
 };
 
-/** 헤더 지수 줄 항목 — 시세가 없는 지수는 뺀다 */
+/** 지수 표시 항목 — 시세가 없는 지수는 뺀다 (등락률은 전일 종가 대비) */
 export function indexStripItems(indices: MarketIndices | null): IndexStripItem[] {
   if (!indices) return [];
   return INDEX_STRIP.flatMap(({ key, label }) => {

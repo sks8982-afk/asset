@@ -3,8 +3,10 @@
 import React, { useMemo } from 'react';
 import type { DbHistory, MarketDataPoint, MyAccountData } from '@/lib/types';
 import type { AppSettings, SettingsPatch } from '@/lib/settings';
+import type { MarketIndices } from '@/lib/market';
 import { isMarketDip, marketDips } from '@/lib/monthly';
 import { currentYearMonth } from '@/lib/date';
+import { MarketIndexStrip } from '../month/MarketIndexStrip';
 import { SummaryCard } from '../month/SummaryCard';
 import { MarketDipCard } from '../month/MarketDipCard';
 import { MonthlyPlanCard } from '../month/MonthlyPlanCard';
@@ -14,6 +16,8 @@ type MonthTabProps = {
   myAccount: MyAccountData;
   dbHistory: DbHistory;
   fullMarketHistory: MarketDataPoint[];
+  /** 주요 지수 (없으면 null) */
+  indices: MarketIndices | null;
   settings: AppSettings;
   updateSettings: (patch: SettingsPatch) => Promise<void>;
   hideReturns: boolean;
@@ -24,9 +28,9 @@ type MonthTabProps = {
   settingsUnavailable: boolean;
 };
 
-/** 이번 달 — 요약 → (하락장 안내) → 적립 계산·기록 → 연속 적립 */
+/** 이번 달 — 주요 지수 → 요약 → (하락장 안내) → 적립 계산·기록 → 연속 적립 */
 export function MonthTab({
-  myAccount, dbHistory, fullMarketHistory, settings, updateSettings, hideReturns, reload, canWrite, settingsUnavailable,
+  myAccount, dbHistory, fullMarketHistory, indices, settings, updateSettings, hideReturns, reload, canWrite, settingsUnavailable,
 }: MonthTabProps) {
   const dips = useMemo(
     () => marketDips(fullMarketHistory, myAccount.currentPriceMap, currentYearMonth()),
@@ -34,15 +38,16 @@ export function MonthTab({
   );
   const hasDip = isMarketDip(dips);
 
-  // 모바일: 한 줄로 요약 → 하락장 → 적립 → 연속 적립
-  // 넓은 화면(lg): 왼쪽 요약·하락장·연속 적립, 오른쪽 적립 계산
+  // 모바일: 한 줄로 지수 → 요약 → 하락장 → 적립 → 연속 적립
+  // 넓은 화면(lg): 왼쪽 지수·요약·하락장·연속 적립, 오른쪽 적립 계산
   return (
     <div
       className={`grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6 ${
         hasDip ? 'lg:grid-rows-[auto_auto_1fr]' : 'lg:grid-rows-[auto_1fr]'
       }`}
     >
-      <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+      <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1 lg:space-y-6">
+        <MarketIndexStrip indices={indices} />
         <SummaryCard
           totalAsset={myAccount.totalAsset}
           totalInvested={myAccount.totalInvested}

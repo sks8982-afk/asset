@@ -4,10 +4,12 @@ import React, { useMemo } from 'react';
 import type { DbHistory, MarketDataPoint, MyAccountData } from '@/lib/types';
 import type { AppSettings, SettingsPatch } from '@/lib/settings';
 import type { MarketIndices } from '@/lib/market';
+import { holdingsPnl } from '@/lib/holdings';
 import { isMarketDip, marketDips } from '@/lib/monthly';
 import { currentYearMonth } from '@/lib/date';
 import { MarketIndexStrip } from '../month/MarketIndexStrip';
 import { SummaryCard } from '../month/SummaryCard';
+import { HoldingsPnlCard } from '../month/HoldingsPnlCard';
 import { MarketDipCard } from '../month/MarketDipCard';
 import { MonthlyPlanCard } from '../month/MonthlyPlanCard';
 import { InvestmentStreakSection } from '../InvestmentStreakSection';
@@ -28,7 +30,7 @@ type MonthTabProps = {
   settingsUnavailable: boolean;
 };
 
-/** 이번 달 — 주요 지수 → 요약 → (하락장 안내) → 적립 계산·기록 → 연속 적립 */
+/** 이번 달 — 주요 지수 → 요약 → 보유 종목 → (하락장 안내) → 적립 계산·기록 → 연속 적립 */
 export function MonthTab({
   myAccount, dbHistory, fullMarketHistory, indices, settings, updateSettings, hideReturns, reload, canWrite, settingsUnavailable,
 }: MonthTabProps) {
@@ -37,9 +39,13 @@ export function MonthTab({
     [fullMarketHistory, myAccount.currentPriceMap],
   );
   const hasDip = isMarketDip(dips);
+  const holdings = useMemo(
+    () => holdingsPnl(myAccount.portfolio, myAccount.currentPriceMap),
+    [myAccount.portfolio, myAccount.currentPriceMap],
+  );
 
-  // 모바일: 한 줄로 지수 → 요약 → 하락장 → 적립 → 연속 적립
-  // 넓은 화면(lg): 왼쪽 지수·요약·하락장·연속 적립, 오른쪽 적립 계산
+  // 모바일: 한 줄로 지수 → 요약 → 보유 종목 → 하락장 → 적립 → 연속 적립
+  // 넓은 화면(lg): 왼쪽 지수·요약·보유 종목·하락장·연속 적립, 오른쪽 적립 계산
   return (
     <div
       className={`grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6 ${
@@ -54,6 +60,7 @@ export function MonthTab({
           budgets={dbHistory.budgets}
           hideReturns={hideReturns}
         />
+        <HoldingsPnlCard holdings={holdings} hideReturns={hideReturns} />
       </div>
       {hasDip && (
         <div className="min-w-0 lg:col-start-1 lg:row-start-2">

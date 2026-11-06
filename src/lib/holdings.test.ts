@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AssetPortfolio } from './types';
-import { coreAllocation, holdOnlyHoldings } from './holdings';
+import { coreAllocation, holdOnlyHoldings, holdingsPnl } from './holdings';
 
 const WEIGHTS_7030 = { sp500: 0.7, nasdaq100: 0.3 };
 
@@ -102,5 +102,40 @@ describe('holdOnlyHoldings', () => {
   it('is empty without hold-only holdings and safe with zero total assets', () => {
     expect(holdOnlyHoldings({ snp: portfolio.snp }, prices, 10_000_000)).toEqual([]);
     expect(holdOnlyHoldings(portfolio, prices, 0).every((r) => r.sharePct === 0)).toBe(true);
+  });
+});
+
+describe('holdingsPnl', () => {
+  const portfolio = {
+    snp: position(100, 20_000, prices.snp), // 2,500,000 / 원금 2,000,000 → +500,000
+    nasdaq_kodex: position(0, 0, prices.nasdaq_kodex), // 수량 0 — 빠진다
+    tech10: position(5, 20_000, prices.tech10), // 90,000 / 100,000 → −10,000
+    gold: position(10, 40_000, prices.gold), // 500,000 / 400,000 → +100,000
+    kodex200: position(3, 30_000, 0), // 시세 없음 — 평가액 0
+    cash: position(0, 0, 0),
+  };
+
+  it('lists every held asset, core and hold-only, by value with profit and return against average cost', () => {
+    const rows = holdingsPnl(portfolio, prices);
+    expect(rows.map((r) => r.key)).toEqual(['snp', 'gold', 'tech10', 'kodex200']);
+    const [snp, gold, tech10] = rows;
+    expect(snp).toMatchObject({
+      name: 'TIGER 미국S&P500', qty: 100, avg: 20_000, price: 25_000, value: 2_500_000, cost: 2_000_000, pnl: 500_000,
+    });
+    expect(snp.roiPct).toBeCloseTo(25);
+    expect(gold.pnl).toBe(100_000);
+    expect(gold.roiPct).toBeCloseTo(25);
+    expect(tech10.pnl).toBe(-10_000);
+    expect(tech10.roiPct).toBeCloseTo(-10);
+  });
+
+  it('leaves profit and return empty while an asset has no price', () => {
+    // 시세를 못 받아 평가액이 0이면 −100%로 보이면 안 된다
+    const kodex200 = holdingsPnl(portfolio, prices).find((r) => r.key === 'kodex200');
+    expect(kodex200).toMatchObject({ price: 0, value: 0, pnl: null, roiPct: null });
+  });
+
+  it('is empty without holdings', () => {
+    expect(holdingsPnl({ cash: position(0, 0, 0) }, prices)).toEqual([]);
   });
 });

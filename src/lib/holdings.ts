@@ -1,7 +1,7 @@
 /**
- * 점검 화면 계산 — 코어 묶음(S&P500·나스닥100)별 평가액·원금·비중, 보유만 종목 목록.
+ * 보유 종목 계산 — 코어 묶음(S&P500·나스닥100)별 평가액·원금·비중, 보유만 종목 목록, 종목별 평단 대비 손익.
  */
-import { CORE_GROUP_KEYS, CORE_GROUPS, HOLD_ASSETS, getAsset, getGroupKeys, type CoreGroup } from './assets';
+import { ASSETS, CORE_GROUP_KEYS, CORE_GROUPS, HOLD_ASSETS, getAsset, getGroupKeys, type CoreGroup } from './assets';
 import { coreDrift } from './core';
 import { groupToBoost } from './monthly';
 import type { AssetPortfolio } from './types';
@@ -122,5 +122,25 @@ export function holdOnlyHoldings(portfolio: PortfolioMap, prices: PriceMap, tota
       roiPct: p.price > 0 ? roiPctOf(p.value, p.cost) : null,
       sharePct: totalAsset > 0 ? (p.value / totalAsset) * 100 : 0,
     }))
+    .sort((a, b) => b.value - a.value);
+}
+
+export type HoldingPnl = HeldPosition & {
+  /** 평가 손익 = 평가액 − 원금 (시세가 없으면 null) */
+  pnl: number | null;
+  /** 평단 대비 수익률 % (원금이나 시세가 없으면 null) */
+  roiPct: number | null;
+};
+
+/** 보유 중인 모든 종목(코어·보유만)의 평단 대비 손익 — 평가액 큰 순 */
+export function holdingsPnl(portfolio: PortfolioMap, prices: PriceMap): HoldingPnl[] {
+  return ASSETS
+    .map((asset) => heldPosition(asset.key, portfolio[asset.key], prices))
+    .filter((p): p is HeldPosition => p !== null)
+    .map((p) => {
+      // 시세가 없으면 평가액이 0이라 손익이 −100%로 보이므로 비워 둔다
+      const priced = p.price > 0;
+      return { ...p, pnl: priced ? p.value - p.cost : null, roiPct: priced ? roiPctOf(p.value, p.cost) : null };
+    })
     .sort((a, b) => b.value - a.value);
 }

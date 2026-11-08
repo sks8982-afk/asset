@@ -8,7 +8,7 @@ import { signToneClass } from '../ui/styles';
 
 type HoldingsPnlCardProps = {
   holdings: HoldingPnl[];
-  /** 수익률 숨기기 — 현재가·손익·수익률을 *** 로 (수량·평단·투자금액은 그대로) */
+  /** 수익률 숨기기 — 현재가·손익·수익률·평가액을 *** 로 (수량·평단·투자금액은 그대로) */
   hideReturns: boolean;
 };
 
@@ -27,7 +27,7 @@ function pnlText(pnl: number, roiPct: number | null): string {
   return roiPct == null ? signedWon(pnl) : `${signedWon(pnl)} (${formatSignedPercent(roiPct)})`;
 }
 
-/** 보유 종목 — 종목별 평단·현재가와 투자금액, 산 가격(평단) 대비 손익·수익률 (보유가 없으면 숨김) */
+/** 보유 종목 — 종목별 평단·현재가와 투자금액, 산 가격(평단) 대비 손익·수익률과 그게 반영된 평가액 (보유가 없으면 숨김) */
 export function HoldingsPnlCard({ holdings, hideReturns }: HoldingsPnlCardProps) {
   if (holdings.length === 0) return null;
   return (
@@ -54,14 +54,23 @@ export function HoldingsPnlCard({ holdings, hideReturns }: HoldingsPnlCardProps)
                 {h.price > 0 ? `${maskReturn(formatNum(h.price), hideReturns)}원` : '—'}
               </p>
             </div>
-            {/* 글자처럼 1원 미만은 버려서 '0원'이 빨강·초록으로 보이지 않게 */}
-            <p
-              className={`mt-0.5 text-sm font-semibold tabular-nums ${signToneClass(
-                hideReturns || h.pnl == null ? null : Math.trunc(h.pnl),
-              )}`}
-            >
-              {h.pnl == null ? '시세 없음' : maskReturn(pnlText(h.pnl, h.roiPct), hideReturns)}
-            </p>
+            {/* 손익·수익률 → 그게 반영된 지금 금액(평가액). 색은 글자처럼 1원 미만을 버려 '0원'이 빨강·초록이 되지 않게 */}
+            {h.pnl == null ? (
+              <p className={`mt-0.5 text-sm font-semibold ${signToneClass(null)}`}>시세 없음</p>
+            ) : (
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                <span className={signToneClass(hideReturns ? null : Math.trunc(h.pnl))}>
+                  {maskReturn(pnlText(h.pnl, h.roiPct), hideReturns)}
+                </span>
+                <span aria-hidden="true" className="mx-1.5 text-slate-400 dark:text-slate-500">
+                  →
+                </span>
+                <span className="sr-only">평가액 </span>
+                <span className="font-bold text-slate-900 dark:text-slate-100">
+                  {maskReturn(formatNum(h.value), hideReturns)}원
+                </span>
+              </p>
+            )}
           </li>
         ))}
       </ul>
